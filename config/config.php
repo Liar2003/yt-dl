@@ -18,10 +18,6 @@ return [
     // Public HTTPS URL to public/webhook.php on your hosting
     'webhook_url'       => 'https://yourdomain.com/public/webhook.php',
 
-    // Optional shared secret checked against Telegram's
-    // X-Telegram-Bot-Api-Secret-Token header (see setWebhook.php)
-    'webhook_secret'    => 'change-this-random-string',
-
     // Bootstrap admin — always treated as admin even before any row
     // exists in the `admins` table
     'admin_telegram_id' => 123456789,

@@ -201,12 +201,8 @@ class TelegramService
         return $this->request('getChatMember', ['chat_id' => $channel, 'user_id' => $userId]);
     }
 
-    public function setWebhook(string $url, ?string $secret = null): ?array
+    public function setWebhook(string $url): ?array
     {
-        $params = ['url' => $url];
-        if ($secret) {
-            $params['secret_token'] = $secret;
-        }
-        return $this->request('setWebhook', $params);
+        return $this->request('setWebhook', ['url' => $url]);
     }
 }
