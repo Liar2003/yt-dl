@@ -7,6 +7,7 @@ return [
     'db' => [
         'host'     => 'zj3s02purc.pxxldb.pxxl.pro',
 	'port'     => 37313,
+	'username' => 'pxxluser_19fc8319217de37',
 	'password' => '3c_N_hxmg8yp_drpRX6jbUfhHHw_KA3F',
         'dbname'   => 'pxxldb_19fc83192171935',
         'charset'  => 'utf8mb4',

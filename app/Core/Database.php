@@ -17,9 +17,10 @@ class Database
         if (self::$instance === null) {
             $cfg = Config::get('db', []);
             $dsn = sprintf(
-                'mysql:host=%s;port=%d;password=%s;dbname=%s;charset=%s',
+                'mysql:host=%s;port=%d;username=%s;password=%s;dbname=%s;charset=%s',
                 $cfg['host'] ?? 'localhost',
 		$cfg['port'] ?? 3306,
+		$cfg['username'] ?? '',
 		$cfg['password'] ?? '',
                 $cfg['dbname'] ?? '',
                 $cfg['charset'] ?? 'utf8mb4'
