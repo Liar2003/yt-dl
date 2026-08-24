@@ -59,7 +59,14 @@ class TikwmService
 
     public function getVideoUrl(array $data): ?string
     {
-        return $data['play'] ?? null;
+        // fetch() asks for hd=1, so hdplay carries the no-watermark HD
+        // rendition when one exists; play is the standard-quality copy.
+        foreach (['hdplay', 'play'] as $key) {
+            if (!empty($data[$key]) && is_string($data[$key])) {
+                return $data[$key];
+            }
+        }
+        return null;
     }
 
     public function getAudioUrl(array $data): ?string
@@ -102,17 +109,24 @@ class TikwmService
         }
     }
 
-    /** Caches a TikTok's extracted audio URL under a short, stable key for the "Download Audio" button. */
-    public function cacheAudioUrl(string $tiktokId, ?string $audioUrl): void
+    /** Caches a TikTok's extracted audio under a short, stable key for the "Download Audio" button. */
+    public function cacheAudioUrl(string $tiktokId, ?string $audioUrl, ?string $originUrl = null): void
     {
         if ($audioUrl) {
-            $this->setCache('audio_' . $tiktokId, ['url' => $audioUrl]);
+            $this->setCache('audio_' . $tiktokId, array_filter([
+                'url'    => $audioUrl,
+                'origin' => $originUrl,
+            ]));
         }
+    }
+
+    public function getCachedAudio(string $tiktokId): ?array
+    {
+        return $this->getCache('audio_' . $tiktokId);
     }
 
     public function getCachedAudioUrl(string $tiktokId): ?string
     {
-        $cached = $this->getCache('audio_' . $tiktokId);
-        return $cached['url'] ?? null;
+        return $this->getCachedAudio($tiktokId)['url'] ?? null;
     }
 }

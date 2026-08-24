@@ -86,7 +86,7 @@ class AdminController
         $pdo = Database::getInstance();
         $rows = $pdo->query('SELECT telegram_id, username, is_banned FROM users ORDER BY id DESC LIMIT 30')->fetchAll();
         $lines = array_map(
-            fn($r) => ($r['is_banned'] ? '🚫' : '✅') . " `{$r['telegram_id']}` @" . ($r['username'] ?: '-'),
+            fn($r) => ($r['is_banned'] ? '🚫' : '✅') . " `{$r['telegram_id']}` @" . Validator::markdownEscape((string) ($r['username'] ?: '-')),
             $rows
         );
         $this->telegram->sendMessage($chatId, "*Recent users (max 30):*\n" . implode("\n", $lines ?: ['No users yet.']));
@@ -192,7 +192,8 @@ class AdminController
         $pdo = Database::getInstance();
         $rows = $pdo->query('SELECT channel_username, channel_title FROM required_channels')->fetchAll();
         $lines = array_map(
-            fn($r) => $r['channel_username'] . ($r['channel_title'] ? " ({$r['channel_title']})" : ''),
+            fn($r) => Validator::markdownEscape((string) $r['channel_username']) .
+                ($r['channel_title'] ? ' (' . Validator::markdownEscape((string) $r['channel_title']) . ')' : ''),
             $rows
         );
         $this->telegram->sendMessage($chatId, "*Required channels:*\n" . implode("\n", $lines ?: ['None set.']));
@@ -244,7 +245,7 @@ class AdminController
     private function logsCommand(int $chatId): void
     {
         $lines = array_map(
-            fn($r) => "[{$r['level']}] {$r['created_at']}: " . mb_substr($r['message'], 0, 80),
+            fn($r) => "[{$r['level']}] {$r['created_at']}: " . Validator::markdownEscape(mb_substr((string) $r['message'], 0, 80)),
             Log::recent(15)
         );
         $this->telegram->sendMessage($chatId, "*Recent logs (max 15):*\n" . implode("\n", $lines ?: ['No logs yet.']));
@@ -253,7 +254,7 @@ class AdminController
     private function errorsCommand(int $chatId): void
     {
         $lines = array_map(
-            fn($r) => "{$r['created_at']}: " . mb_substr($r['message'], 0, 100),
+            fn($r) => "{$r['created_at']}: " . Validator::markdownEscape(mb_substr((string) $r['message'], 0, 100)),
             Log::recentByLevel('error', 15)
         );
         $this->telegram->sendMessage($chatId, "*Recent errors (max 15):*\n" . implode("\n", $lines ?: ['No errors logged. 🎉']));
@@ -346,7 +347,7 @@ class AdminController
              LIMIT 10'
         )->fetchAll();
         $lines = array_map(
-            fn($r) => "{$r['downloads']}× — `{$r['telegram_id']}` @" . ($r['username'] ?: '-'),
+            fn($r) => "{$r['downloads']}× — `{$r['telegram_id']}` @" . Validator::markdownEscape((string) ($r['username'] ?: '-')),
             $rows
         );
         $this->telegram->sendMessage($chatId, "*Top downloaders:*\n" . implode("\n", $lines ?: ['No downloads yet.']));

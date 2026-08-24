@@ -45,6 +45,14 @@ class TelegramService
         return is_array($data) ? $data : null;
     }
 
+    /** True when Telegram rejected the call specifically over Markdown entity parsing. */
+    private function isParseError(?array $result): bool
+    {
+        return $result !== null
+            && ($result['ok'] ?? false) !== true
+            && str_contains((string) ($result['description'] ?? ''), 'parse entities');
+    }
+
     public function sendMessage(int $chatId, string $text, ?array $replyMarkup = null, string $parseMode = 'Markdown'): ?array
     {
         $params = [
@@ -56,7 +64,19 @@ class TelegramService
         if ($replyMarkup !== null) {
             $params['reply_markup'] = json_encode($replyMarkup);
         }
-        return $this->request('sendMessage', $params);
+
+        $result = $this->request('sendMessage', $params);
+
+        // One stray _ * ` [ in interpolated text makes Telegram reject
+        // the whole message with "can't parse entities" — retry once
+        // without formatting so the content still arrives (plain beats
+        // missing).
+        if ($this->isParseError($result)) {
+            Logger::write('warning', 'Markdown parse failed — resending without formatting', ['method' => 'sendMessage', 'chat_id' => $chatId]);
+            unset($params['parse_mode']);
+            $result = $this->request('sendMessage', $params);
+        }
+        return $result;
     }
 
     public function sendVideo(int $chatId, string $videoUrl, string $caption = '', ?array $replyMarkup = null): ?array
@@ -168,7 +188,15 @@ class TelegramService
         if ($replyMarkup !== null) {
             $params['reply_markup'] = json_encode($replyMarkup);
         }
-        return $this->request('editMessageText', $params);
+
+        $result = $this->request('editMessageText', $params);
+
+        if ($this->isParseError($result)) {
+            Logger::write('warning', 'Markdown parse failed — resending without formatting', ['method' => 'editMessageText', 'chat_id' => $chatId]);
+            unset($params['parse_mode']);
+            $result = $this->request('editMessageText', $params);
+        }
+        return $result;
     }
 
     /** Pass null to clear the keyboard entirely. */

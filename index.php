@@ -4,15 +4,17 @@
  * POST ?ajax=1 with url=<TikTok/Facebook/YouTube link> returns JSON;
  * GET ?proxy=1&id=..&kind=video|audio streams a YouTube file through
  * this server (see the comment on that block for why); GET with
- * neither param renders the page. Reuses Tool77Service exactly as the
- * bot does for all three platforms — see that class's docblock for how
- * the response's url tokens get resolved into real, fetchable links.
+ * neither param renders the page. Facebook and YouTube extract through
+ * Tool77Service exactly as the bot does — see that class's docblock
+ * for how the response's url tokens get resolved into real, fetchable
+ * links. TikTok goes through TikwmService instead, same as public/.
  */
 
 require_once __DIR__ . '/app/autoload.php';
 
 use App\Helpers\Response;
 use App\Helpers\Validator;
+use App\Services\TikwmService;
 use App\Services\Tool77Service;
 
 if (($_SERVER['REQUEST_METHOD'] ?? '') === 'GET' && isset($_GET['proxy'])) {
@@ -79,6 +81,29 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && isset($_GET['ajax'])) {
         $url = Validator::resolveRedirect($url);
     }
 
+    // TikTok: TikwmService, never tool77 (that's Facebook/YouTube only).
+    if (Validator::isTikTokUrl($url)) {
+        $tikwm = new TikwmService();
+        $data = $tikwm->fetch($url);
+
+        if (!$data) {
+            Response::json(['success' => false, 'message' => "Couldn't fetch that link — it may be private, deleted, or invalid."]);
+            exit;
+        }
+
+        $type = $tikwm->detectType($data);
+        Response::json([
+            'success'   => true,
+            'type'      => $type,
+            'title'     => $data['title'] ?? '',
+            'cover'     => $data['cover'] ?? ($data['origin_cover'] ?? null),
+            'video_url' => $type === 'video' ? $tikwm->getVideoUrl($data) : null,
+            'images'    => $type === 'image' ? $tikwm->getImages($data) : [],
+            'audio_url' => $tikwm->getAudioUrl($data),
+        ]);
+        exit;
+    }
+
     $videoId = Validator::extractYouTubeId($url);
     if ($videoId) {
         $url = 'https://www.youtube.com/watch?v=' . $videoId; // canonical form, same as the bot uses
@@ -92,7 +117,8 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && isset($_GET['ajax'])) {
         exit;
     }
 
-    $isYouTube = ((string) ($data['source'] ?? '')) === 'youtube';
+    // Only Facebook and YouTube reach tool77 — TikTok exited above.
+    $isYouTube = Validator::isYouTubeUrl($url);
     $id = $tool77->cacheId($url);
     $title = $data['title'] ?? '';
     $cover = $data['thumbnail'] ?? null;
@@ -101,15 +127,6 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && isset($_GET['ajax'])) {
     $audioUrl = $audio && $audio['url']
         ? ($isYouTube ? ('index.php?proxy=1&id=' . urlencode($id) . '&kind=audio') : $tool77->resolveUrl($audio))
         : null;
-
-    $images = $tool77->getImageUrls($data);
-    if ($images) {
-        Response::json([
-            'success' => true, 'type' => 'image', 'title' => $title, 'cover' => $cover,
-            'video_url' => null, 'images' => $images, 'audio_url' => $audioUrl,
-        ]);
-        exit;
-    }
 
     $video = $tool77->getBestNormal($data);
     $videoUrl = $video && $video['url']

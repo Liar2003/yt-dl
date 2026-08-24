@@ -8,15 +8,16 @@ use App\Helpers\Logger;
 use Throwable;
 
 /**
- * Client for tool77.com's "download/all" endpoint — used for TikTok,
- * Facebook, and YouTube alike (BotController routes all three of them
- * here). Unofficial, undocumented third-party API. Three things worth
+ * Client for tool77.com's "download/all" endpoint — used for Facebook
+ * and YouTube only (BotController routes just those two here; TikTok
+ * extraction deliberately goes through TikwmService instead).
+ * Unofficial, undocumented third-party API. Three things worth
  * knowing before relying on this in production:
  *
  * 1. The `url` field in every format entry is NOT a direct link — it's
  *    base64_decode(strrev($token)). Confirmed during development by
  *    decoding real example responses: they resolve to genuine
- *    tiktokcdn.com / fbcdn.net / redirector.googlevideo.com URLs.
+ *    fbcdn.net / redirector.googlevideo.com URLs.
  *    resolveUrl() does this decode and validates the result actually
  *    looks like a URL before returning it, so a scheme change on
  *    tool77's end fails loud (null) instead of handing Telegram
@@ -102,33 +103,6 @@ class Tool77Service
     public function getBestAudio(array $data): ?array
     {
         return $this->pickBest($data['audios'] ?? [], false);
-    }
-
-    /**
-     * Resolved image URLs for a TikTok photo-carousel post
-     * (data['images']). No confirmed example of this array's shape was
-     * available during development — every other array in this API
-     * uses {name, url, ...} objects with an obfuscated url token, so
-     * entries here are decoded the same way if they're objects; a
-     * plain string entry is passed through as-is in case images turn
-     * out not to need the same obfuscation. Returns whichever entries
-     * successfully resolve to something URL-shaped, silently dropping
-     * the rest — worth spot-checking against a real carousel post.
-     */
-    public function getImageUrls(array $data): array
-    {
-        $urls = [];
-        foreach ($data['images'] ?? [] as $entry) {
-            if (is_string($entry) && preg_match('#^https?://#i', $entry)) {
-                $urls[] = $entry;
-            } elseif (is_array($entry)) {
-                $resolved = $this->resolveUrl($entry);
-                if ($resolved) {
-                    $urls[] = $resolved;
-                }
-            }
-        }
-        return $urls;
     }
 
     /**

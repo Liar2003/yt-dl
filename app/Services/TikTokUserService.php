@@ -16,9 +16,9 @@ use Throwable;
  *
  * Delivery is NOT handled here. Once a video is picked from the list,
  * BotController reconstructs its canonical TikTok URL and hands off to
- * the existing handleTikTokUrl() — same tool77-backed pipeline as any
- * other TikTok link, so the audio button, large-file fallback, etc.
- * all apply automatically instead of being duplicated here.
+ * the existing handleTikTokUrl() — same TikwmService-backed pipeline
+ * as any other TikTok link, so the audio button, large-file fallback,
+ * etc. all apply automatically instead of being duplicated here.
  */
 class TikTokUserService
 {

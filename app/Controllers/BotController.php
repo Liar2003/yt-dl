@@ -17,6 +17,7 @@ use App\Services\MediaService;
 use App\Services\StatisticsService;
 use App\Services\TelegramService;
 use App\Services\TikTokUserService;
+use App\Services\TikwmService;
 use App\Services\Tool77Service;
 use App\Services\YoutubeSearchService;
 use Throwable;
@@ -25,19 +26,22 @@ use Throwable;
  * Routes every incoming Telegram update to the right handler. This is
  * the class Router::handleWebhook() calls into.
  *
- * TikTok, Facebook, and YouTube all go through Tool77Service now — one
- * client for tool77.com's "download/all" endpoint. See that class's
- * docblock for how the response's obfuscated url tokens get resolved
- * into real, fetchable links, and the caveats that come with an
- * unofficial API. TikTokUserService is separate — it only handles
- * browsing a TikTok user's video list (TikWM, not tool77); picking a
- * video from that list hands off to handleTikTokUrl() like any other
- * TikTok link.
+ * Platform routing: Facebook and YouTube extract via Tool77Service —
+ * one client for tool77.com's "download/all" endpoint (see that
+ * class's docblock for how the response's obfuscated url tokens get
+ * resolved into real, fetchable links, and the caveats that come with
+ * an unofficial API). TikTok deliberately does NOT touch tool77:
+ * links and /username post picks alike go through TikwmService, the
+ * same client the web downloader uses. TikTokUserService is separate
+ * again — it only handles browsing a TikTok user's video list;
+ * picking a video from that list hands off to handleTikTokUrl() like
+ * any other TikTok link.
  */
 class BotController
 {
     private TelegramService $telegram;
     private Tool77Service $tool77;
+    private TikwmService $tikwm;
     private TikTokUserService $tiktokUser;
     private YoutubeSearchService $ytSearch;
     private MediaService $media;
@@ -49,6 +53,7 @@ class BotController
     {
         $this->telegram   = new TelegramService();
         $this->tool77     = new Tool77Service();
+        $this->tikwm      = new TikwmService();
         $this->tiktokUser = new TikTokUserService();
         $this->ytSearch  = new YoutubeSearchService();
         $this->media     = new MediaService();
@@ -239,50 +244,68 @@ class BotController
 
     /**
      * TikTok: video primary (or a photo carousel), with a 🎵 Download
-     * Audio button. TikTok photo posts are the one shape here without
-     * a confirmed tool77 example — see Tool77Service::getImageUrls().
+     * Audio button. Extraction runs through TikwmService — tool77 is
+     * reserved for Facebook and YouTube only.
      */
     public function handleTikTokUrl(int $chatId, int $userId, string $url): void
     {
-        $this->handleVideoFirstPlatform(
-            $chatId,
-            $userId,
-            $url,
-            "❌ Couldn't fetch that TikTok link. It may be private, deleted, or invalid.",
-            'video',
-            'image'
-        );
+        if (Validator::isShortLink($url)) {
+            $url = Validator::resolveRedirect($url);
+        }
+
+        if (!$this->forceJoin->checkAll($userId)) {
+            $this->storePendingRequest($userId, $chatId, $url);
+            $this->forceJoin->sendJoinPrompt($chatId);
+            return;
+        }
+
+        $this->telegram->sendChatAction($chatId, 'typing');
+
+        $data = $this->tikwm->fetch($url);
+        if (!$data) {
+            $this->telegram->sendMessage($chatId, "❌ Couldn't fetch that TikTok link. It may be private, deleted, or invalid.");
+            return;
+        }
+
+        $title = Validator::markdownEscape((string) ($data['title'] ?? ''));
+        $tiktokId = (string) ($data['id'] ?? md5($url));
+        $audioUrl = $this->tikwm->getAudioUrl($data);
+        $this->tikwm->cacheAudioUrl($tiktokId, $audioUrl, $url);
+
+        $keyboard = $audioUrl
+            ? ['inline_keyboard' => [[['text' => '🎵 Download Audio', 'callback_data' => 'tkaud_' . $tiktokId]]]]
+            : null;
+
+        $images = $this->tikwm->getImages($data);
+        if ($images) {
+            $this->telegram->sendChatAction($chatId, 'upload_photo');
+            $this->telegram->sendMediaGroup($chatId, $images);
+            $this->telegram->sendMessage($chatId, $title !== '' ? $title : 'Here you go 👆', $keyboard);
+            $this->saveDownload($userId, $url, 'image');
+            $this->stats->recordDownload();
+            $this->ads->maybeShow($chatId);
+            return;
+        }
+
+        $videoUrl = $this->tikwm->getVideoUrl($data);
+        if (!$videoUrl) {
+            $this->telegram->sendMessage($chatId, "❌ No downloadable video found for that link.");
+            return;
+        }
+
+        $this->deliverVideo($chatId, $videoUrl, $title, $keyboard);
+        $this->saveDownload($userId, $url, 'video');
+        $this->stats->recordDownload();
+        $this->ads->maybeShow($chatId);
     }
 
     /**
-     * Facebook: video primary, with a 🎵 Download Audio button.
+     * Facebook: fetch via tool77, deliver the best combined-audio+video
+     * format, with a 🎵 Download Audio button when a separate audio
+     * track exists.
      */
     public function handleFacebookUrl(int $chatId, int $userId, string $url): void
     {
-        $this->handleVideoFirstPlatform(
-            $chatId,
-            $userId,
-            $url,
-            "❌ Couldn't fetch that Facebook link. It may be private or invalid.",
-            'facebook_video',
-            null // no photo-carousel case on Facebook
-        );
-    }
-
-    /**
-     * Shared by TikTok and Facebook: fetch via tool77, deliver a photo
-     * carousel if there is one (TikTok only), otherwise the best
-     * combined-audio+video format, with a "Download Audio" button
-     * either way when a separate audio track exists.
-     */
-    private function handleVideoFirstPlatform(
-        int $chatId,
-        int $userId,
-        string $url,
-        string $notFoundMessage,
-        string $videoDownloadType,
-        ?string $imageDownloadType
-    ): void {
         if (Validator::isShortLink($url)) {
             $url = Validator::resolveRedirect($url);
         }
@@ -297,31 +320,17 @@ class BotController
 
         $data = $this->tool77->fetch($url);
         if (!$data) {
-            $this->telegram->sendMessage($chatId, $notFoundMessage);
+            $this->telegram->sendMessage($chatId, "❌ Couldn't fetch that Facebook link. It may be private or invalid.");
             return;
         }
 
         $title = Validator::markdownEscape((string) ($data['title'] ?? ''));
         $id = $this->tool77->cacheId($url);
-        $logUrl = (string) ($data['originUrl'] ?? $url);
 
         $audio = $this->tool77->getBestAudio($data);
         $keyboard = ($audio && $audio['url'])
             ? ['inline_keyboard' => [[['text' => '🎵 Download Audio', 'callback_data' => 'dlaud_' . $id]]]]
             : null;
-
-        if ($imageDownloadType !== null) {
-            $images = $this->tool77->getImageUrls($data);
-            if ($images) {
-                $this->telegram->sendChatAction($chatId, 'upload_photo');
-                $this->telegram->sendMediaGroup($chatId, $images);
-                $this->telegram->sendMessage($chatId, $title !== '' ? $title : 'Here you go 👆', $keyboard);
-                $this->saveDownload($userId, $logUrl, $imageDownloadType);
-                $this->stats->recordDownload();
-                $this->ads->maybeShow($chatId);
-                return;
-            }
-        }
 
         $video = $this->tool77->getBestNormal($data);
         $videoUrl = $video ? $this->tool77->resolveUrl($video) : null;
@@ -331,7 +340,7 @@ class BotController
         }
 
         $this->deliverVideo($chatId, $videoUrl, $title, $keyboard);
-        $this->saveDownload($userId, $logUrl, $videoDownloadType);
+        $this->saveDownload($userId, (string) ($data['originUrl'] ?? $url), 'facebook_video');
         $this->stats->recordDownload();
         $this->ads->maybeShow($chatId);
     }
@@ -633,6 +642,10 @@ class BotController
             $this->onDownloadAudioButton($callbackId, (int) $chatId, $userId, substr($data, 6));
             return;
         }
+        if (str_starts_with($data, 'tkaud_')) {
+            $this->onTikTokAudioButton($callbackId, (int) $chatId, $userId, substr($data, 6));
+            return;
+        }
         if (str_starts_with($data, 'dlvid_')) {
             $this->onDownloadVideoButton($callbackId, (int) $chatId, $userId, substr($data, 6));
             return;
@@ -713,7 +726,7 @@ class BotController
         $this->handleTikTokUrl($chatId, $userId, "https://www.tiktok.com/@{$uniqueId}/video/{$videoId}");
     }
 
-    /** "Download Audio" button — used by TikTok and Facebook results alike, both cached via Tool77Service. */
+    /** "Download Audio" button under Facebook results — cached via Tool77Service. */
     private function onDownloadAudioButton(string $callbackId, int $chatId, int $userId, string $id): void
     {
         $data = $this->tool77->getCachedById($id);
@@ -733,11 +746,25 @@ class BotController
         $this->telegram->sendChatAction($chatId, 'upload_audio');
         $this->telegram->sendAudio($chatId, $audioUrl, '🎵 Extracted audio');
 
-        // tool77's own `source` field distinguishes which platform this
-        // was — fine to trust for a stats label (worst case a download
-        // is mislabeled), even though we don't trust it for behavior.
-        $type = ((string) ($data['source'] ?? '')) === 'tiktok' ? 'tiktok_audio' : 'facebook_audio';
-        $this->saveDownload($userId, (string) ($data['originUrl'] ?? $id), $type);
+        $this->saveDownload($userId, (string) ($data['originUrl'] ?? $id), 'facebook_audio');
+        $this->stats->recordDownload();
+        $this->ads->maybeShow($chatId);
+    }
+
+    /** "Download Audio" button under TikTok results — audio URL pre-cached by handleTikTokUrl() via TikwmService. */
+    private function onTikTokAudioButton(string $callbackId, int $chatId, int $userId, string $tiktokId): void
+    {
+        $cached = $this->tikwm->getCachedAudio($tiktokId);
+        if (!$cached || empty($cached['url'])) {
+            $this->telegram->answerCallbackQuery($callbackId, "That link expired — please resend it.", true);
+            return;
+        }
+
+        $this->telegram->answerCallbackQuery($callbackId);
+        $this->telegram->sendChatAction($chatId, 'upload_audio');
+        $this->telegram->sendAudio($chatId, $cached['url'], '🎵 Extracted audio');
+
+        $this->saveDownload($userId, (string) ($cached['origin'] ?? ('tkaud_' . $tiktokId)), 'tiktok_audio');
         $this->stats->recordDownload();
         $this->ads->maybeShow($chatId);
     }
