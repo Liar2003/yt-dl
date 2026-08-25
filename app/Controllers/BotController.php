@@ -103,6 +103,7 @@ class BotController
             User::registerOrUpdate($from);
             if ($isNewUser) {
                 $this->stats->recordNewUser();
+                $this->notifyAdminsNewUser($from, $message);
             }
 
             if (User::isBanned($telegramId)) {
@@ -174,7 +175,7 @@ class BotController
                     "👋 *Welcome!*\n\nSend me a TikTok or Facebook link to download the video, " .
                     "a YouTube link or search term to pick from its video/audio download links, " .
                     "or a TikTok @username to browse their videos.\n\n" .
-                    "Use /help to see everything I can do."
+                    "Use /help to see everything I can do." . $this->personalStatsLine((int) $from['id'])
                 );
                 return;
 
@@ -226,6 +227,98 @@ class BotController
                     );
                 }
         }
+    }
+
+    /**
+     * Personal touch for returning users: their lifetime download
+     * count appended to /start. Cosmetic only — a DB that isn't set up
+     * yet (commands route before /setup) or briefly unreachable just
+     * yields an empty string rather than failing the greeting.
+     */
+    private function personalStatsLine(int $telegramId): string
+    {
+        try {
+            $count = Download::countForUser($telegramId);
+        } catch (Throwable) {
+            return '';
+        }
+        return $count > 0
+            ? "\n\n📊 You've downloaded *" . number_format($count) . '* ' . ($count === 1 ? 'file' : 'files') . ' with me so far.'
+            : '';
+    }
+
+    /**
+     * Every brand-new user triggers a full-detail report to all admins
+     * (the bootstrap admin_telegram_id from config plus everyone in the
+     * admins table). Best-effort by design: this runs inside the DB
+     * preamble where a half-set-up database is exactly the interesting
+     * case, and a failing admin ping must never break the new user's
+     * own request — so everything is wrapped.
+     */
+    private function notifyAdminsNewUser(array $from, array $message): void
+    {
+        try {
+            $ids = [(int) Config::get('admin_telegram_id')];
+            foreach (User::listAdmins() as $admin) {
+                $ids[] = (int) $admin['telegram_id'];
+            }
+
+            $text = $this->buildNewUserReport($from, $message);
+            foreach (array_unique($ids) as $id) {
+                // A new user who happens to be an admin shouldn't get a report about themselves.
+                if ($id > 0 && $id !== (int) $from['id']) {
+                    $this->telegram->sendMessage($id, $text);
+                }
+            }
+        } catch (Throwable $e) {
+            Logger::write('warning', 'New-user admin report failed: ' . $e->getMessage(), [
+                'telegram_id' => (int) ($from['id'] ?? 0),
+            ]);
+        }
+    }
+
+    private function buildNewUserReport(array $from, array $message): string
+    {
+        $name = trim(($from['first_name'] ?? '') . ' ' . ($from['last_name'] ?? ''));
+        $username = (string) ($from['username'] ?? '');
+
+        $lines = [
+            "🆕 *New User Alert*",
+            '',
+            "👤 Name: " . Validator::markdownEscape($name !== '' ? $name : '-'),
+            "🔗 Username: " . ($username !== '' ? '@' . Validator::markdownEscape($username) : '-'),
+            "🆔 ID: `{$from['id']}`",
+            "🔗 [Open profile](tg://user?id={$from['id']})",
+        ];
+
+        if (!empty($from['language_code'])) {
+            $lines[] = "🌐 Language: {$from['language_code']}";
+        }
+        $lines[] = "💎 Premium: " . (!empty($from['is_premium']) ? 'Yes' : 'No');
+
+        $chatType = (string) ($message['chat']['type'] ?? '');
+        $source = match ($chatType) {
+            'private'    => 'Private chat',
+            'supergroup' => 'Group',
+            'group'      => 'Basic group',
+            'channel'    => 'Channel',
+            default      => $chatType !== '' ? ucfirst($chatType) : 'Unknown',
+        };
+        if (in_array($chatType, ['group', 'supergroup'], true) && !empty($message['chat']['title'])) {
+            $source .= ': ' . Validator::markdownEscape((string) $message['chat']['title']);
+        }
+        $lines[] = "💬 Via: {$source}";
+
+        try {
+            $total = (int) Database::getInstance()->query('SELECT COUNT(*) FROM users')->fetchColumn();
+            $lines[] = '';
+            $lines[] = "👥 Total registered users: " . number_format($total);
+        } catch (Throwable) {
+            // Count is garnish; skip it rather than fail the report.
+        }
+
+        $lines[] = "🕒 Joined: " . gmdate('Y-m-d H:i:s') . ' UTC';
+        return implode("\n", $lines);
     }
 
     /**

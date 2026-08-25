@@ -16,4 +16,13 @@ class Download
         $stmt = $pdo->prepare('INSERT INTO downloads (user_id, url, type) VALUES (:u, :url, :type)');
         $stmt->execute(['u' => $userId, 'url' => $url, 'type' => $type]);
     }
+
+    /** Total completed downloads for one user — powers the /start greeting counter. */
+    public static function countForUser(int $userId): int
+    {
+        $pdo = Database::getInstance();
+        $stmt = $pdo->prepare('SELECT COUNT(*) FROM downloads WHERE user_id = :u');
+        $stmt->execute(['u' => $userId]);
+        return (int) $stmt->fetchColumn();
+    }
 }
