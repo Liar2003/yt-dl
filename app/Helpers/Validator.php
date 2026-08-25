@@ -20,6 +20,39 @@ class Validator
         );
     }
 
+    /**
+     * Rewrites a Facebook URL into the exact shape tool77's API accepts —
+     * "https://www.facebook.com/<type>/<id>". Anything extra, e.g. reel
+     * links carrying tracking junk like
+     * /reel/1659014385378197/?mibextid=9…&s=y…&fs=e, come back as a
+     * "This platform…" fail from the API. So: fold m./web. hosts onto
+     * www., drop the query string / fragment and any trailing slash
+     * everywhere except /watch/ pages, whose video ID lives in ?v=.
+     */
+    public static function normalizeFacebookUrl(string $url): string
+    {
+        if (!self::isFacebookUrl($url)) {
+            return $url;
+        }
+
+        // Canonical host: tool77 wants www.facebook.com.
+        $url = preg_replace_callback(
+            '#^(https?://)(?:www\.|web\.|m\.)?(facebook\.com)(/|$)#i',
+            fn($m) => $m[1] . 'www.' . $m[2] . $m[3],
+            $url
+        );
+
+        // /watch/ pages keep only the video-ID param — the ID lives in the query there.
+        if (preg_match('#^(https?://www\.facebook\.com/watch/?)#i', $url, $m)
+            && preg_match('#[?&]v=(\d+)#i', $url, $v)
+        ) {
+            return $m[1] . '?v=' . $v[1];
+        }
+
+        // Everything else: cut query/fragment, then trailing slash.
+        return rtrim(preg_replace('~[?#].*$~', '', $url), '/');
+    }
+
     public static function isYouTubeUrl(string $text): bool
     {
         return (bool) preg_match(

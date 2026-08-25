@@ -172,24 +172,45 @@ class BotController
             case '/start':
                 $this->telegram->sendMessage(
                     $chatId,
-                    "👋 *Welcome!*\n\nSend me a TikTok or Facebook link to download the video, " .
-                    "a YouTube link or search term to pick from its video/audio download links, " .
-                    "or a TikTok @username to browse their videos.\n\n" .
-                    "Use /help to see everything I can do." . $this->personalStatsLine((int) $from['id'])
+                    "👋 *Welcome!*\n\n" .
+                    "I download videos from TikTok, Facebook & YouTube — free, no watermark.\n\n" .
+                    "*Just send me:*\n" .
+                    "• TikTok link → video/photos + 🎵 audio\n" .
+                    "• Facebook link → video + 🎵 audio\n" .
+                    "• YouTube link → pick 1080p–360p or 🎵 audio\n" .
+                    "• Any word → YouTube search results\n" .
+                    "• /username @handle → browse their videos\n\n" .
+                    "Type /help for everything I can do." . $this->personalStatsLine((int) $from['id'])
                 );
                 return;
 
             case '/help':
-                $this->telegram->sendMessage(
-                    $chatId,
+                $text =
                     "*How to use this bot*\n\n" .
-                    "• Send a TikTok link → get the video/photos plus a 🎵 audio option\n" .
-                    "• Send a Facebook link → get the video plus a 🎵 audio option\n" .
-                    "• Send a YouTube link → get download buttons: 1080p/720p/480p/360p video + audio\n" .
-                    "• Send a search term → pick a YouTube result to download\n" .
-                    "• /username @handle → browse a TikTok user's recent videos\n\n" .
-                    "Commands: /start /help /about /username"
-                );
+                    "*Downloads* — just paste a link:\n" .
+                    "• TikTok → video (no watermark), photo albums, 🎵 audio button\n" .
+                    "• Facebook → best video + 🎵 audio button\n" .
+                    "• YouTube → buttons: 1080p/720p/480p/360p 🔇 + 🎵 m4a/opus\n" .
+                    "• Any text → YouTube search, tap a result\n\n" .
+                    "*TikTok profiles*\n" .
+                    "• /username @handle → recent videos, tap to download\n\n" .
+                    "*Commands*\n" .
+                    "/start · /help · /about · /username";
+
+                if ($this->isAdminSafe((int) $from['id'])) {
+                    $text .=
+                        "\n\n🛠 *Admin* — /admin for the dashboard\n" .
+                        "/users /ban /unban /history /list /top\n" .
+                        "/forcejoin /addchannel /removechannel /channels\n" .
+                        "/broadcast /forward /stats /logs /errors\n" .
+                        "/addadmin /removeadmin /admins\n" .
+                        "/ads /adslist /adsremove · forward = new ad\n" .
+                        "/maintenance /setup";
+                } else {
+                    $text .= "\n\n💡 Download buttons last about an hour — resend the link if one expires.";
+                }
+
+                $this->telegram->sendMessage($chatId, $text);
                 return;
 
             case '/about':
@@ -226,6 +247,21 @@ class BotController
                         "⚠️ Database not ready. If you're the bot owner, send /setup to create the tables."
                     );
                 }
+        }
+    }
+
+    /**
+     * Admin check that can't throw: User::isAdmin() answers from config
+     * alone for the bootstrap admin but hits the DB for everyone else,
+     * so on a brand-new deployment it fails — treat that as non-admin
+     * rather than breaking /help.
+     */
+    private function isAdminSafe(int $telegramId): bool
+    {
+        try {
+            return User::isAdmin($telegramId);
+        } catch (Throwable) {
+            return false;
         }
     }
 
@@ -465,6 +501,9 @@ class BotController
         if (Validator::isShortLink($url)) {
             $url = Validator::resolveRedirect($url);
         }
+        // tool77 only accepts the plain https://www.facebook.com/<type>/<id>
+        // shape — strip tracking queries etc. before it sees the link.
+        $url = Validator::normalizeFacebookUrl($url);
 
         if (!$this->forceJoin->checkAll($userId)) {
             $this->storePendingRequest($userId, $chatId, $url);

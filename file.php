@@ -2,42 +2,38 @@
 /**
  * ██████╗ ██╗  ██╗███████╗██╗     ███████╗
  * ██╔══██╗██║  ██║██╔════╝██║     ██╔════╝
- * ██████╔╝███████║█████╗  ██║     ███████╗
+ * ██████╔╝███████║█████╗  ██║     ╚════██║
  * ██╔══██╗██╔══██║██╔══╝  ██║     ╚════██║
  * ██║  ██║██║  ██║███████╗███████╗███████║
  * ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝
  * Single-File PHP File Manager + Web Terminal
- * Version: 3.0 | Security: High
+ * Version: 4.0 | UI: Aurora Glass | Security: High
  */
 
 // ============================================================
 //  CONFIGURATION — edit these before deploying
 // ============================================================
 define('FM_PASSWORD',     'changeme123');          // Login password
-define('FM_USERNAME',     'admin');                  // Login username
-define('FM_ROOT',         __DIR__);                  // Root directory (restrict to this)
-define('FM_SESSION_NAME', 'fm_secure_sess');         // Custom session name
-define('FM_MAX_UPLOAD',   100 * 1024 * 1024);        // Max upload: 100 MB
-define('FM_LANG',         'en');                     // Language (en/my)
-define('FM_SELF',         basename(__FILE__));        // This file's name
-define('FM_TERMINAL',     true);                     // Enable web terminal
-define('FM_VERSION',      '3.0');
+define('FM_USERNAME',     'admin');                // Login username
+define('FM_ROOT',         __DIR__);                // Root directory (restrict to this)
+define('FM_SESSION_NAME', 'fm_secure_sess');       // Custom session name
+define('FM_MAX_UPLOAD',   100 * 1024 * 1024);      // Max upload: 100 MB
+define('FM_SELF',         basename(__FILE__));     // This file's name
+define('FM_TERMINAL',     true);                   // Enable web terminal
+define('FM_VERSION',      '4.0');
 
 // ============================================================
 //  SECURITY BOOTSTRAP
 // ============================================================
-// Prevent direct output of errors
 ini_set('display_errors', 0);
 error_reporting(0);
 
-// Security headers
 header('X-Content-Type-Options: nosniff');
 header('X-Frame-Options: SAMEORIGIN');
 header('X-XSS-Protection: 1; mode=block');
 header('Referrer-Policy: same-origin');
-header('Content-Security-Policy: default-src \'self\'; style-src \'self\' \'unsafe-inline\' https://fonts.googleapis.com https://fonts.gstatic.com; font-src \'self\' https://fonts.gstatic.com; script-src \'self\' \'unsafe-inline\'; img-src \'self\' data:;');
+header('Content-Security-Policy: default-src \'self\'; style-src \'self\' \'unsafe-inline\' https://fonts.googleapis.com https://fonts.gstatic.com; font-src \'self\' https://fonts.gstatic.com; script-src \'self\' \'unsafe-inline\'; img-src \'self\' data:; media-src \'self\'; frame-src \'self\';');
 
-// Session security
 ini_set('session.cookie_httponly', 1);
 ini_set('session.use_only_cookies', 1);
 ini_set('session.cookie_samesite', 'Strict');
@@ -47,19 +43,16 @@ if (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on') {
 session_name(FM_SESSION_NAME);
 session_start();
 
-// Regenerate session ID periodically
 if (!isset($_SESSION['_last_regen']) || time() - $_SESSION['_last_regen'] > 300) {
     session_regenerate_id(true);
     $_SESSION['_last_regen'] = time();
 }
 
-// CSRF Token
 if (empty($_SESSION['csrf_token'])) {
     $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
 }
 $csrf_token = $_SESSION['csrf_token'];
 
-// Rate limiting (login brute-force protection)
 if (!isset($_SESSION['login_attempts'])) $_SESSION['login_attempts'] = 0;
 if (!isset($_SESSION['lockout_time']))   $_SESSION['lockout_time']   = 0;
 
@@ -72,7 +65,6 @@ function fm_is_logged_in() {
 }
 
 function fm_login($user, $pass) {
-    // Rate limiting: max 5 attempts, 15-minute lockout
     if ($_SESSION['login_attempts'] >= 5) {
         if (time() - $_SESSION['lockout_time'] < 900) {
             return ['ok' => false, 'msg' => 'Too many failed attempts. Try again in 15 minutes.'];
@@ -107,9 +99,8 @@ function fm_verify_csrf() {
 }
 
 function fm_real_path($path) {
-    // Sanitize and resolve path, ensuring it stays within FM_ROOT
-    $path     = FM_ROOT . DIRECTORY_SEPARATOR . ltrim($path, '/\\');
-    $real     = realpath($path);
+    $path      = FM_ROOT . DIRECTORY_SEPARATOR . ltrim($path, '/\\');
+    $real      = realpath($path);
     $root_real = realpath(FM_ROOT);
     if ($real === false || strpos($real, $root_real) !== 0) {
         return false; // Path traversal blocked
@@ -143,8 +134,8 @@ function fm_mime_type($file) {
             'gif'=>'image/gif','webp'=>'image/webp','svg'=>'image/svg+xml',
             'ico'=>'image/x-icon','pdf'=>'application/pdf','zip'=>'application/zip',
             'tar'=>'application/x-tar','gz'=>'application/gzip',
-            'mp4'=>'video/mp4','webm'=>'video/webm','mp3'=>'audio/mpeg',
-            'wav'=>'audio/wav','ogg'=>'audio/ogg'];
+            'mp4'=>'video/mp4','webm'=>'video/webm','mov'=>'video/quicktime','mkv'=>'video/x-matroska',
+            'mp3'=>'audio/mpeg','m4a'=>'audio/mp4','wav'=>'audio/wav','ogg'=>'audio/ogg','flac'=>'audio/flac'];
     return $map[$ext] ?? 'application/octet-stream';
 }
 
@@ -157,6 +148,15 @@ function fm_is_text_file($file) {
 function fm_is_image($file) {
     $mime = fm_mime_type($file);
     return strpos($mime, 'image/') === 0 && $mime !== 'image/svg+xml';
+}
+
+/** Media types the streaming `preview` endpoint will serve inline. */
+function fm_is_streamable($file) {
+    $mime = fm_mime_type($file);
+    return strpos($mime, 'image/') === 0
+        || strpos($mime, 'video/') === 0
+        || strpos($mime, 'audio/') === 0
+        || $mime === 'application/pdf';
 }
 
 function fm_list_dir($path) {
@@ -226,7 +226,7 @@ if (isset($_GET['ajax']) && fm_is_logged_in()) {
     $action = $_GET['action'] ?? '';
 
     // Actions that modify state require CSRF
-    $state_actions = ['mkdir','rename','delete','upload','save','chmod','extract','compress','terminal'];
+    $state_actions = ['mkdir','rename','delete','upload','save','chmod','extract','compress','terminal','touch'];
     if (in_array($action, $state_actions)) {
         fm_verify_csrf();
     }
@@ -272,16 +272,30 @@ if (isset($_GET['ajax']) && fm_is_logged_in()) {
             }
             break;
 
+        // --- Create empty file (new in v4 — no more terminal hack) ---
+        case 'touch':
+            $relPath = (string) ($_POST['path'] ?? '');
+            $name    = basename(trim($relPath));
+            if (!$name || $relPath !== '/' . ltrim(str_replace('\\', '/', $relPath), '/') || strpos($relPath, '..') !== false
+                || preg_match('/[\\/:*?"<>|]/', $name)) {
+                echo json_encode(['error' => 'Invalid name or path']); break;
+            }
+            $realDir = fm_real_path(dirname($relPath));
+            if (!$realDir || !is_dir($realDir) || !is_writable($realDir)) { echo json_encode(['error' => 'Directory not writable']); break; }
+            $target = $realDir . DIRECTORY_SEPARATOR . $name;
+            if (file_exists($target)) { echo json_encode(['error' => 'Already exists']); break; }
+            echo json_encode(@file_put_contents($target, '') !== false ? ['ok' => true] : ['error' => 'Create failed']);
+            break;
+
         // --- Create directory ---
         case 'mkdir':
             $parent = $_POST['path'] ?? '/';
             $name   = basename(trim($_POST['name'] ?? ''));
             if (!$name || preg_match('/[\\/:*?"<>|]/', $name)) { echo json_encode(['error' => 'Invalid name']); break; }
-            $real = fm_real_path($parent . '/' . $name);
-            if ($real && file_exists($real)) { echo json_encode(['error' => 'Already exists']); break; }
             $target = fm_real_path($parent);
             if (!$target) { echo json_encode(['error' => 'Invalid path']); break; }
             $new_dir = $target . DIRECTORY_SEPARATOR . $name;
+            if (file_exists($new_dir)) { echo json_encode(['error' => 'Already exists']); break; }
             if (@mkdir($new_dir, 0755)) echo json_encode(['ok' => true]);
             else echo json_encode(['error' => 'Failed to create directory']);
             break;
@@ -364,15 +378,39 @@ if (isset($_GET['ajax']) && fm_is_logged_in()) {
             readfile($real);
             exit;
 
-        // --- Preview image ---
+        // --- Stream preview (images, video w/ seeking, audio, PDF) ---
         case 'preview':
             $path = $_GET['path'] ?? '';
             $real = fm_real_path($path);
-            if (!$real || !is_file($real) || !fm_is_image($real)) { http_response_code(404); exit; }
-            header('Content-Type: ' . fm_mime_type($real));
-            header('Cache-Control: max-age=3600');
+            if (!$real || !is_file($real) || !fm_is_streamable($real)) { http_response_code(404); exit; }
+
+            fm_verify_csrf();
+            $mime = fm_mime_type($real);
+            $size = filesize($real);
+            $start = 0; $end = $size - 1;
+
+            if (isset($_SERVER['HTTP_RANGE']) && preg_match('/bytes=(\d*)-(\d*)/', $_SERVER['HTTP_RANGE'], $m)) {
+                if ($m[1] !== '') $start = (int) $m[1];
+                if ($m[2] !== '') $end   = min((int) $m[2], $size - 1);
+                http_response_code(206);
+                header("Content-Range: bytes $start-$end/$size");
+            }
+            header('Accept-Ranges: bytes');
+            header('Content-Type: ' . $mime);
+            header('Content-Length: ' . ($end - $start + 1));
+            header('Cache-Control: max-age=600');
             ob_end_clean();
-            readfile($real);
+
+            $fp = fopen($real, 'rb');
+            fseek($fp, $start);
+            $remaining = $end - $start + 1;
+            while ($remaining > 0 && !feof($fp)) {
+                $chunk = fread($fp, min(8192, $remaining));
+                if ($chunk === false) break;
+                echo $chunk;
+                $remaining -= strlen($chunk);
+            }
+            fclose($fp);
             exit;
 
         // --- Chmod ---
@@ -423,7 +461,6 @@ if (isset($_GET['ajax']) && fm_is_logged_in()) {
         // --- Copy/Move ---
         case 'copy':
         case 'move':
-            fm_verify_csrf();
             $src  = $_POST['src']  ?? '';
             $dest = $_POST['dest'] ?? '';
             $real_src  = fm_real_path($src);
@@ -482,13 +519,11 @@ if (isset($_GET['ajax']) && fm_is_logged_in()) {
             if (!FM_TERMINAL) { echo json_encode(['error' => 'Terminal disabled']); break; }
             $cmd = trim($_POST['cmd'] ?? '');
             $cwd = trim($_POST['cwd'] ?? FM_ROOT);
-            // Validate cwd stays in root
             $real_cwd = realpath($cwd);
             if (!$real_cwd || strpos($real_cwd, realpath(FM_ROOT)) !== 0) {
                 $real_cwd = FM_ROOT;
             }
             if (!$cmd) { echo json_encode(['output' => '', 'cwd' => $real_cwd]); break; }
-            // Handle 'cd' manually
             if (preg_match('/^cd\s+(.+)$/', $cmd, $m)) {
                 $target = $m[1] === '~' ? FM_ROOT : (
                     $m[1][0] === '/' ? $m[1] : $real_cwd . '/' . $m[1]
@@ -501,7 +536,6 @@ if (isset($_GET['ajax']) && fm_is_logged_in()) {
                 }
                 break;
             }
-            // Block dangerous commands
             $blocked = ['rm -rf /', 'mkfs', 'dd if=', ':(){ :|:& };:', 'chmod 777 /', 'shutdown', 'reboot', 'halt', 'init 0'];
             foreach ($blocked as $b) {
                 if (stripos($cmd, $b) !== false) {
@@ -579,851 +613,721 @@ if (fm_is_logged_in() && isset($_SESSION['_login_time']) && time() - $_SESSION['
 }
 
 ?><!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
 <title>RhelsFS — File Manager</title>
+<script>try{document.documentElement.dataset.theme=localStorage.getItem('fm_theme')||'dark'}catch(e){}</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 /* ============================================================
-   DESIGN SYSTEM — Dark Forge Aesthetic
-   Palette: near-black, steel, amber accent, error red
-   Signature: scanline overlay + terminal-style UI
+   RHELSFS v4 — AURORA GLASS DESIGN SYSTEM
+   Dark-first, light theme via [data-theme="light"].
+   Fully responsive: drawer sidebar + bottom sheets on mobile.
    ============================================================ */
-:root {
-  --bg0:      #0d0f14;
-  --bg1:      #13161e;
-  --bg2:      #1a1e2a;
-  --bg3:      #222737;
-  --border:   #2e3447;
-  --border-hi: #404866;
-  --text0:    #e8ebf5;
-  --text1:    #9ba3bf;
-  --text2:    #5c647d;
-  --amber:    #f5a623;
-  --amber-dim:#8a5d10;
-  --green:    #34d399;
-  --red:      #f87171;
-  --blue:     #60a5fa;
-  --purple:   #a78bfa;
-  --cyan:     #22d3ee;
-  --mono:     'JetBrains Mono', monospace;
-  --sans:     'Inter', system-ui, sans-serif;
-  --radius:   6px;
-  --shadow:   0 4px 24px rgba(0,0,0,.5);
+:root{
+  --bg0:#05070d; --bg1:#0a0e18; --bg2:#101627; --bg3:#171f36;
+  --glass:rgba(255,255,255,.045); --glass-hi:rgba(255,255,255,.09);
+  --border:rgba(148,163,199,.14); --border-hi:rgba(148,163,199,.30);
+  --text0:#eef1fa; --text1:#9aa4c0; --text2:#5b6580;
+  --acc:#818cf8; --acc2:#22d3ee; --grad:linear-gradient(135deg,#6366f1,#22d3ee);
+  --green:#34d399; --red:#fb7185; --amber:#fbbf24;
+  --mono:'JetBrains Mono',ui-monospace,monospace;
+  --sans:'Inter',system-ui,-apple-system,sans-serif;
+  --r-sm:8px; --r-md:12px; --r-lg:18px;
+  --shadow:0 10px 40px rgba(0,0,0,.45);
+  --shadow-sm:0 2px 12px rgba(0,0,0,.35);
+  --cols:34px minmax(0,1fr) 92px 150px 74px 38px;
+  --ease:cubic-bezier(.22,.9,.3,1);
+}
+[data-theme="light"]{
+  --bg0:#eef1f8; --bg1:#f7f9fd; --bg2:#ffffff; --bg3:#eceff7;
+  --glass:rgba(15,23,42,.035); --glass-hi:rgba(15,23,42,.07);
+  --border:rgba(15,23,42,.10); --border-hi:rgba(15,23,42,.22);
+  --text0:#101627; --text1:#475069; --text2:#8b94ad;
+  --shadow:0 12px 40px rgba(30,41,72,.12);
+  --shadow-sm:0 2px 10px rgba(30,41,72,.08);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  background:var(--bg0); color:var(--text0);
+  font-family:var(--sans); font-size:13.5px; line-height:1.5;
+  overflow:hidden; -webkit-tap-highlight-color:transparent;
+}
+body::before{ /* aurora glow */
+  content:''; position:fixed; inset:-20%; z-index:-1; pointer-events:none;
+  background:
+    radial-gradient(600px 420px at 12% -8%, rgba(99,102,241,.16), transparent 60%),
+    radial-gradient(700px 480px at 105% 8%, rgba(34,211,238,.11), transparent 60%),
+    radial-gradient(560px 420px at 55% 115%, rgba(139,92,246,.10), transparent 60%);
+}
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border-hi);border-radius:99px;border:2px solid transparent;background-clip:content-box}
+::selection{background:rgba(99,102,241,.35)}
+button{font-family:inherit;color:inherit}
+input,textarea{font-family:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--acc);outline-offset:2px;border-radius:4px}
+
+/* ── GENERIC CONTROLS ─────────────────────────────── */
+.btn{
+  display:inline-flex;align-items:center;gap:7px;
+  background:var(--glass);border:1px solid var(--border);
+  border-radius:10px;color:var(--text1);
+  font-size:12px;font-weight:600;padding:7px 13px;cursor:pointer;
+  transition:all .16s var(--ease);white-space:nowrap;user-select:none;
+}
+.btn:hover{border-color:var(--border-hi);color:var(--text0);background:var(--glass-hi)}
+.btn:active{transform:scale(.97)}
+.btn.primary{background:var(--grad);border:none;color:#fff;box-shadow:0 4px 18px rgba(79,70,229,.35)}
+.btn.primary:hover{filter:brightness(1.1)}
+.btn.danger{color:var(--red);border-color:color-mix(in srgb,var(--red) 35%,transparent)}
+.btn.danger:hover{background:color-mix(in srgb,var(--red) 12%,transparent)}
+.btn.icon{padding:7px;width:32px;height:32px;justify-content:center;font-size:14px;border-radius:9px}
+.btn.sm{padding:4px 9px;font-size:11px}
+.btn:disabled{opacity:.4;pointer-events:none}
+.kbd{
+  font-family:var(--mono);font-size:10px;color:var(--text2);
+  border:1px solid var(--border);border-bottom-width:2px;border-radius:5px;
+  padding:1px 5px;background:var(--glass);
 }
 
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+/* ── LOGIN ────────────────────────────────────────── */
+.login-wrap{
+  min-height:100vh;display:flex;align-items:center;justify-content:center;
+  padding:20px;gap:60px;flex-wrap:wrap;
+}
+.login-brand{max-width:380px}
+.login-brand .logo-big{
+  width:64px;height:64px;border-radius:20px;background:var(--grad);
+  display:flex;align-items:center;justify-content:center;font-size:30px;
+  box-shadow:0 10px 34px rgba(79,70,229,.45);margin-bottom:22px;
+}
+.login-brand h1{
+  font-size:34px;font-weight:800;letter-spacing:-.02em;line-height:1.15;
+  background:linear-gradient(90deg,var(--text0),var(--acc));-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;
+}
+.login-brand .tag{color:var(--text1);margin-top:10px;font-size:14px}
+.login-feats{margin-top:28px;display:flex;flex-direction:column;gap:12px}
+.login-feat{display:flex;gap:12px;align-items:flex-start;color:var(--text1);font-size:13px}
+.login-feat b{color:var(--text0);display:block;font-size:13px}
+.login-feat .fi{
+  width:34px;height:34px;flex-shrink:0;border-radius:10px;background:var(--glass);
+  border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:16px;
+}
+.login-card{
+  width:380px;max-width:94vw;background:var(--glass);
+  border:1px solid var(--border);border-radius:22px;padding:36px 32px;
+  backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);box-shadow:var(--shadow);
+}
+.login-card h2{font-size:19px;font-weight:700;margin-bottom:2px}
+.login-card .sub{color:var(--text2);font-size:12.5px;margin-bottom:24px}
+.fgroup{margin-bottom:14px}
+.fgroup label{
+  display:block;font-size:10.5px;font-weight:700;letter-spacing:.09em;
+  text-transform:uppercase;color:var(--text2);margin-bottom:6px;
+}
+.input-wrap{position:relative}
+.input-wrap .toggle-pw{
+  position:absolute;right:6px;top:50%;transform:translateY(-50%);
+  background:none;border:none;color:var(--text2);cursor:pointer;font-size:14px;padding:6px;border-radius:6px;
+}
+.input-wrap .toggle-pw:hover{color:var(--text0)}
+.form-control{
+  width:100%;background:var(--bg2);border:1px solid var(--border);
+  border-radius:11px;color:var(--text0);font-size:13.5px;padding:11px 13px;outline:none;
+  transition:border-color .15s,box-shadow .15s;
+}
+.form-control:focus{border-color:var(--acc);box-shadow:0 0 0 3px rgba(99,102,241,.18)}
+.login-error{
+  background:color-mix(in srgb,var(--red) 12%,transparent);
+  border:1px solid color-mix(in srgb,var(--red) 35%,transparent);
+  color:var(--red);font-size:12.5px;padding:9px 13px;border-radius:10px;margin-bottom:16px;
+}
+.btn-login{
+  width:100%;background:var(--grad);color:#fff;border:none;border-radius:11px;
+  font-size:13.5px;font-weight:700;padding:12px;cursor:pointer;margin-top:6px;
+  transition:filter .15s,transform .1s;letter-spacing:.02em;
+}
+.btn-login:hover{filter:brightness(1.08)}
+.btn-login:active{transform:scale(.985)}
+.login-foot{text-align:center;color:var(--text2);font-family:var(--mono);font-size:10.5px;margin-top:22px}
 
-html, body {
-  height: 100%;
-  background: var(--bg0);
-  color: var(--text0);
-  font-family: var(--sans);
-  font-size: 13px;
-  line-height: 1.5;
-  overflow: hidden;
+/* ── APP SHELL ────────────────────────────────────── */
+#app{display:flex;flex-direction:column;height:100vh;height:100dvh}
+.topbar{
+  display:flex;align-items:center;gap:10px;height:54px;padding:0 14px;flex-shrink:0;
+  background:var(--glass);border-bottom:1px solid var(--border);
+  backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  user-select:none;z-index:60;
 }
+.brand{display:flex;align-items:center;gap:9px;font-weight:800;font-size:14.5px;letter-spacing:-.01em}
+.brand .logo-mini{
+  width:28px;height:28px;border-radius:9px;background:var(--grad);
+  display:flex;align-items:center;justify-content:center;font-size:14px;
+  box-shadow:0 3px 12px rgba(79,70,229,.4);
+}
+.brand em{font-style:normal;color:var(--text2);font-weight:600}
+.topbar-sep{flex:1}
+.hamburger{display:none}
+.main{display:flex;flex:1;overflow:hidden}
 
-/* Scanline signature */
-body::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  background: repeating-linear-gradient(
-    0deg,
-    transparent,
-    transparent 2px,
-    rgba(0,0,0,.06) 2px,
-    rgba(0,0,0,.06) 4px
-  );
-  pointer-events: none;
-  z-index: 9999;
+/* ── SIDEBAR ──────────────────────────────────────── */
+.sidebar{
+  width:228px;flex-shrink:0;display:flex;flex-direction:column;
+  background:var(--glass);border-right:1px solid var(--border);
+  overflow-y:auto;z-index:1200;
 }
+.sb-section{padding:16px 10px 6px}
+.sb-heading{
+  font-family:var(--mono);font-size:9.5px;text-transform:uppercase;letter-spacing:.16em;
+  color:var(--text2);padding:0 10px 8px;
+}
+.sb-link{
+  display:flex;align-items:center;gap:10px;padding:8px 11px;margin:1px 0;
+  color:var(--text1);font-size:12.5px;font-weight:500;cursor:pointer;
+  border-radius:10px;border:1px solid transparent;transition:all .13s;
+}
+.sb-link:hover{background:var(--glass-hi);color:var(--text0)}
+.sb-link.active{background:linear-gradient(90deg,rgba(99,102,241,.16),rgba(34,211,238,.06));border-color:rgba(99,102,241,.25);color:var(--text0)}
+.sb-link .si{width:20px;text-align:center;font-size:14px}
+.sb-spacer{flex:1;min-height:20px}
+.disk-widget{padding:16px;text-align:center}
+.disk-ring{position:relative;width:104px;height:104px;margin:0 auto 10px}
+.disk-ring svg{transform:rotate(-90deg)}
+.disk-ring .ring-bg{fill:none;stroke:var(--border);stroke-width:8}
+.disk-ring .ring-fg{
+  fill:none;stroke:url(#ringGrad);stroke-width:8;stroke-linecap:round;
+  transition:stroke-dashoffset .8s var(--ease);
+}
+.disk-ring .ring-txt{
+  position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+}
+.disk-ring .ring-txt b{font-size:19px;font-weight:800}
+.disk-ring .ring-txt span{font-size:9.5px;color:var(--text2);font-family:var(--mono);text-transform:uppercase;letter-spacing:.1em}
+.disk-meta{font-family:var(--mono);font-size:10px;color:var(--text2);line-height:1.8}
+.disk-meta b{color:var(--text1);font-weight:600}
+.sb-chip{
+  margin:10px 14px 16px;padding:8px 10px;border-radius:10px;
+  background:var(--glass);border:1px solid var(--border);
+  font-family:var(--mono);font-size:9.5px;color:var(--text2);
+  display:flex;align-items:center;justify-content:space-between;
+}
+.sb-backdrop{position:fixed;inset:0;background:rgba(3,5,10,.6);z-index:1100;backdrop-filter:blur(2px)}
 
-/* ── SCROLLBAR ── */
-::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: var(--bg1); }
-::-webkit-scrollbar-thumb { background: var(--border-hi); border-radius: 3px; }
+/* ── CONTENT / TOOLBAR ────────────────────────────── */
+.content{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
+.toolbar{
+  display:flex;align-items:center;gap:8px;padding:9px 14px;flex-shrink:0;flex-wrap:wrap;
+  border-bottom:1px solid var(--border);background:var(--glass);
+}
+.nav-arrows{display:flex;gap:4px}
+.crumbwrap{flex:1;min-width:140px;overflow-x:auto;scrollbar-width:none}
+.crumbwrap::-webkit-scrollbar{display:none}
+.crumbs{display:inline-flex;align-items:center;font-family:var(--mono);font-size:11.5px;white-space:nowrap;padding:2px 0}
+.crumb{color:var(--text2);cursor:pointer;padding:3px 5px;border-radius:6px;transition:all .12s}
+.crumb:hover{color:var(--acc2);background:var(--glass-hi)}
+.crumb.last{color:var(--text0);cursor:default;font-weight:600}
+.crumb-sep{color:var(--text2);opacity:.5;margin:0 1px}
+.filter-box{
+  display:flex;align-items:center;gap:6px;background:var(--bg2);
+  border:1px solid var(--border);border-radius:10px;padding:0 10px;transition:border-color .15s;
+}
+.filter-box:focus-within{border-color:var(--acc)}
+.filter-box input{
+  background:none;border:none;outline:none;color:var(--text0);
+  font-size:12.5px;padding:7px 0;width:150px;
+}
+.filter-box input::placeholder{color:var(--text2)}
+.filter-box .fx{background:none;border:none;color:var(--text2);cursor:pointer;font-size:13px;padding:2px;display:none}
+.filter-box.has-q .fx{display:block}
+.sort-wrap{position:relative}
+.pop-menu{
+  position:absolute;top:calc(100% + 6px);right:0;min-width:170px;z-index:900;
+  background:var(--bg2);border:1px solid var(--border-hi);border-radius:13px;padding:5px;
+  box-shadow:var(--shadow);animation:popIn .14s var(--ease);
+}
+@keyframes popIn{from{opacity:0;transform:translateY(-5px) scale(.98)}to{opacity:1;transform:none}}
+.pop-item{
+  display:flex;align-items:center;gap:9px;width:100%;text-align:left;
+  padding:7px 10px;border:none;background:none;color:var(--text1);
+  font-size:12.5px;border-radius:8px;cursor:pointer;
+}
+.pop-item:hover{background:var(--glass-hi);color:var(--text0)}
+.pop-item.on{color:var(--acc);font-weight:600}
+.pop-sep{height:1px;background:var(--border);margin:5px 8px}
 
-/* ── LOGIN PAGE ── */
-.login-wrap {
-  display: flex; align-items: center; justify-content: center;
-  min-height: 100vh;
-  background: radial-gradient(ellipse at 50% 30%, #1a1e2a 0%, #0d0f14 70%);
+/* ── FILE AREA ────────────────────────────────────── */
+.file-area{flex:1;overflow-y:auto;overflow-x:hidden;position:relative;scroll-behavior:smooth}
+.fhead,.frow{
+  display:grid;grid-template-columns:var(--cols);align-items:center;
+  gap:8px;padding:0 14px;min-width:520px;
 }
-.login-box {
-  width: 360px;
-  background: var(--bg1);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 40px 36px;
-  box-shadow: var(--shadow), 0 0 60px rgba(245,166,35,.05);
+.fhead{
+  position:sticky;top:0;z-index:20;background:var(--bg1);
+  border-bottom:1px solid var(--border);
+  font-family:var(--mono);font-size:9.5px;text-transform:uppercase;letter-spacing:.12em;
+  color:var(--text2);height:36px;
 }
-.login-logo {
-  text-align: center;
-  margin-bottom: 32px;
+.fhead .sortable{cursor:pointer;user-select:none;display:flex;align-items:center;gap:4px}
+.fhead .sortable:hover{color:var(--text1)}
+.fhead .sortable.on{color:var(--acc)}
+.frow{
+  height:46px;border-bottom:1px solid var(--border);
+  cursor:pointer;transition:background .1s;position:relative;
 }
-.login-logo .icon {
-  font-size: 32px;
-  display: block;
-  margin-bottom: 8px;
+.frow:hover{background:var(--glass)}
+.frow.sel{background:linear-gradient(90deg,rgba(99,102,241,.13),rgba(34,211,238,.05))}
+.frow.sel::before{content:'';position:absolute;left:0;top:0;bottom:0;width:2.5px;background:var(--grad)}
+.chk{display:flex;align-items:center;justify-content:center}
+.chk input{accent-color:var(--acc);width:15px;height:15px;cursor:pointer}
+.fic{font-size:19px;text-align:center;filter:drop-shadow(0 2px 4px rgba(0,0,0,.3))}
+.fname{min-width:0;display:flex;align-items:center;gap:8px}
+.fname .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
+.fname .lock{font-size:10px;opacity:.7}
+.fsize,.fdate,.fperm{font-family:var(--mono);font-size:10.5px;color:var(--text1);white-space:nowrap}
+.fperm{color:var(--text2)}
+.fmore{
+  width:30px;height:30px;border-radius:8px;border:none;background:none;
+  color:var(--text2);font-size:17px;cursor:pointer;opacity:0;transition:all .12s;
+  display:flex;align-items:center;justify-content:center;
 }
-.login-logo h1 {
-  font-family: var(--mono);
-  font-size: 20px;
-  font-weight: 600;
-  color: var(--amber);
-  letter-spacing: .05em;
-}
-.login-logo p {
-  color: var(--text2);
-  font-size: 11px;
-  margin-top: 4px;
-  font-family: var(--mono);
-}
-.form-group { margin-bottom: 16px; }
-.form-group label {
-  display: block;
-  font-size: 11px;
-  font-family: var(--mono);
-  color: var(--text1);
-  text-transform: uppercase;
-  letter-spacing: .08em;
-  margin-bottom: 6px;
-}
-.form-control {
-  width: 100%;
-  background: var(--bg2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  color: var(--text0);
-  font-family: var(--mono);
-  font-size: 13px;
-  padding: 9px 12px;
-  outline: none;
-  transition: border-color .15s;
-}
-.form-control:focus { border-color: var(--amber); }
-.btn-login {
-  width: 100%;
-  background: var(--amber);
-  color: #0d0f14;
-  border: none;
-  border-radius: var(--radius);
-  font-family: var(--mono);
-  font-size: 13px;
-  font-weight: 600;
-  padding: 10px;
-  cursor: pointer;
-  margin-top: 8px;
-  letter-spacing: .05em;
-  transition: opacity .15s;
-}
-.btn-login:hover { opacity: .88; }
-.login-error {
-  background: rgba(248,113,113,.12);
-  border: 1px solid rgba(248,113,113,.3);
-  border-radius: var(--radius);
-  color: var(--red);
-  font-family: var(--mono);
-  font-size: 12px;
-  padding: 8px 12px;
-  margin-bottom: 16px;
-}
+.frow:hover .fmore,.gcard:hover .fmore,.fmore:focus{opacity:1}
+.fmore:hover{background:var(--glass-hi);color:var(--text0)}
+.dir-name{color:var(--text0)}
 
-/* ── LAYOUT ── */
-#app { display: flex; flex-direction: column; height: 100vh; }
+/* grid view */
+.grid-view{
+  display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));
+  gap:12px;padding:16px;
+}
+.gcard{
+  display:flex;flex-direction:column;align-items:center;gap:8px;
+  padding:14px 8px 10px;border-radius:14px;cursor:pointer;position:relative;
+  background:var(--glass);border:1px solid var(--border);transition:all .15s var(--ease);
+}
+.gcard:hover{border-color:var(--border-hi);transform:translateY(-2px);box-shadow:var(--shadow-sm)}
+.gcard.sel{border-color:var(--acc);background:rgba(99,102,241,.10)}
+.gcard .thumb{
+  width:64px;height:64px;border-radius:11px;object-fit:cover;
+  background:var(--bg3);box-shadow:var(--shadow-sm);
+}
+.gcard .gi{font-size:34px;line-height:64px}
+.gcard .gn{
+  font-size:11px;color:var(--text1);text-align:center;width:100%;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.gcard .chk{position:absolute;top:7px;left:7px;opacity:0;transition:opacity .12s}
+.gcard:hover .chk,.gcard.sel .chk{opacity:1}
 
-.topbar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 0 16px;
-  height: 44px;
-  background: var(--bg1);
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-  user-select: none;
+/* skeleton + empty */
+.skl-row{height:46px;border-bottom:1px solid var(--border);display:grid;grid-template-columns:var(--cols);align-items:center;gap:8px;padding:0 14px;min-width:520px}
+.skl-bar{height:11px;border-radius:6px;background:linear-gradient(90deg,var(--glass) 25%,var(--glass-hi) 50%,var(--glass) 75%);background-size:200% 100%;animation:shimmer 1.2s infinite}
+@keyframes shimmer{to{background-position:-200% 0}}
+.empty-state{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;
+  padding:80px 20px;color:var(--text2);text-align:center;
 }
-.topbar-logo {
-  font-family: var(--mono);
-  font-weight: 600;
-  font-size: 14px;
-  color: var(--amber);
-  letter-spacing: .06em;
-}
-.topbar-logo span { color: var(--text2); font-weight: 400; }
-.topbar-sep { flex: 1; }
-.topbar-actions { display: flex; gap: 6px; align-items: center; }
+.empty-state .big{font-size:52px;filter:grayscale(.3);opacity:.85}
+.empty-state h3{color:var(--text1);font-size:15px;font-weight:600}
+.empty-state p{font-size:12.5px;max-width:300px}
 
-.btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  background: var(--bg3);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  color: var(--text1);
-  font-family: var(--mono);
-  font-size: 11px;
-  padding: 5px 10px;
-  cursor: pointer;
-  transition: border-color .15s, color .15s;
-  white-space: nowrap;
+/* drag overlay */
+.drop-overlay{
+  position:absolute;inset:8px;z-index:500;border-radius:18px;
+  border:2px dashed var(--acc);background:color-mix(in srgb,var(--acc) 8%,var(--bg1));
+  display:none;align-items:center;justify-content:center;flex-direction:column;gap:10px;
+  color:var(--text0);pointer-events:none;font-weight:600;
 }
-.btn:hover { border-color: var(--border-hi); color: var(--text0); }
-.btn.amber { border-color: var(--amber-dim); color: var(--amber); }
-.btn.amber:hover { background: rgba(245,166,35,.1); }
-.btn.danger { color: var(--red); border-color: rgba(248,113,113,.3); }
-.btn.danger:hover { background: rgba(248,113,113,.1); }
-.btn.sm { padding: 3px 7px; font-size: 10px; }
-.btn.icon-only { padding: 5px 8px; }
+.drop-overlay.show{display:flex}
+.drop-overlay .di{font-size:44px}
 
-.main {
-  display: flex;
-  flex: 1;
-  overflow: hidden;
+/* bulk bar */
+.bulkbar{
+  position:fixed;left:50%;bottom:52px;transform:translateX(-50%) translateY(20px);
+  z-index:800;display:flex;align-items:center;gap:6px;padding:8px 10px;
+  background:var(--bg2);border:1px solid var(--border-hi);border-radius:16px;
+  box-shadow:var(--shadow);opacity:0;pointer-events:none;transition:all .22s var(--ease);
+  max-width:min(94vw,720px);flex-wrap:wrap;justify-content:center;
 }
-
-/* ── SIDEBAR ── */
-.sidebar {
-  width: 220px;
-  background: var(--bg1);
-  border-right: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-  flex-shrink: 0;
-  overflow-y: auto;
-}
-.sidebar-section { padding: 14px 0 8px; }
-.sidebar-heading {
-  font-family: var(--mono);
-  font-size: 9px;
-  text-transform: uppercase;
-  letter-spacing: .12em;
-  color: var(--text2);
-  padding: 0 14px 6px;
-}
-.sidebar-link {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 14px;
-  color: var(--text1);
-  font-size: 12px;
-  cursor: pointer;
-  border-left: 2px solid transparent;
-  transition: all .12s;
-}
-.sidebar-link:hover { background: var(--bg2); color: var(--text0); }
-.sidebar-link.active { border-left-color: var(--amber); color: var(--amber); background: rgba(245,166,35,.06); }
-.sidebar-link .icon { font-size: 14px; width: 18px; text-align: center; }
-
-.disk-meter { padding: 14px; border-top: 1px solid var(--border); }
-.disk-meter-label {
-  font-family: var(--mono);
-  font-size: 10px;
-  color: var(--text2);
-  margin-bottom: 6px;
-  display: flex;
-  justify-content: space-between;
-}
-.disk-bar { height: 4px; background: var(--bg3); border-radius: 2px; overflow: hidden; }
-.disk-fill { height: 100%; background: var(--amber); border-radius: 2px; transition: width .4s; }
-.disk-fill.warn { background: var(--red); }
-
-/* ── CONTENT AREA ── */
-.content { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-
-/* ── TOOLBAR ── */
-.toolbar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 14px;
-  background: var(--bg2);
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-  flex-wrap: wrap;
-}
-
-.breadcrumb {
-  display: flex;
-  align-items: center;
-  gap: 0;
-  font-family: var(--mono);
-  font-size: 11px;
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-}
-.breadcrumb-item {
-  color: var(--text2);
-  cursor: pointer;
-  padding: 2px 4px;
-  border-radius: 3px;
-  white-space: nowrap;
-}
-.breadcrumb-item:hover { color: var(--amber); }
-.breadcrumb-item.last { color: var(--text0); cursor: default; }
-.breadcrumb-sep { color: var(--text2); margin: 0 1px; }
-
-.search-box {
-  display: flex;
-  align-items: center;
-  gap: 0;
-  background: var(--bg1);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 0 8px;
-}
-.search-box input {
-  background: none;
-  border: none;
-  outline: none;
-  color: var(--text0);
-  font-family: var(--mono);
-  font-size: 11px;
-  padding: 4px 4px;
-  width: 160px;
-}
-.search-box input::placeholder { color: var(--text2); }
-.search-btn { background: none; border: none; color: var(--text2); cursor: pointer; font-size: 13px; padding: 2px; }
-
-/* ── FILE LIST ── */
-.file-area { flex: 1; overflow-y: auto; padding: 0; }
-
-.file-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-.file-table thead th {
-  position: sticky;
-  top: 0;
-  background: var(--bg2);
-  border-bottom: 1px solid var(--border);
-  padding: 7px 14px;
-  text-align: left;
-  font-family: var(--mono);
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: .08em;
-  color: var(--text2);
-  font-weight: 500;
-  cursor: pointer;
-  user-select: none;
-  white-space: nowrap;
-}
-.file-table thead th:hover { color: var(--text1); }
-.file-table tbody tr {
-  border-bottom: 1px solid rgba(46,52,71,.5);
-  transition: background .08s;
-  cursor: pointer;
-}
-.file-table tbody tr:hover { background: var(--bg2); }
-.file-table tbody tr.selected { background: rgba(245,166,35,.08); }
-.file-table td {
-  padding: 6px 14px;
-  font-size: 12px;
-  color: var(--text1);
-  white-space: nowrap;
-}
-.file-table td:first-child { color: var(--text0); max-width: 300px; overflow: hidden; text-overflow: ellipsis; }
-.file-name {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.file-icon { font-size: 15px; flex-shrink: 0; }
-.file-perms { font-family: var(--mono); font-size: 11px; color: var(--text2); }
-.file-date { font-family: var(--mono); font-size: 11px; }
-.file-size { font-family: var(--mono); font-size: 11px; }
-.dir-icon { color: var(--amber); }
-.col-check { width: 36px; }
-.check { accent-color: var(--amber); cursor: pointer; }
-
-/* ── EMPTY STATE ── */
-.empty-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  height: 200px;
-  color: var(--text2);
-  font-family: var(--mono);
-}
-.empty-state .icon { font-size: 36px; }
-
-/* ── STATUS BAR ── */
-.statusbar {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 4px 14px;
-  background: var(--bg1);
-  border-top: 1px solid var(--border);
-  font-family: var(--mono);
-  font-size: 10px;
-  color: var(--text2);
-  flex-shrink: 0;
-}
-.statusbar span { color: var(--text1); }
-#status-msg { color: var(--green); transition: opacity .4s; }
-#status-msg.error { color: var(--red); }
-
-/* ── TERMINAL PANEL ── */
-.terminal-panel {
-  height: 260px;
-  background: #080a10;
-  border-top: 2px solid var(--amber-dim);
-  display: flex;
-  flex-direction: column;
-  flex-shrink: 0;
-  font-family: var(--mono);
-  font-size: 12px;
-}
-.terminal-panel.hidden { display: none; }
-.terminal-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 5px 12px;
-  background: var(--bg0);
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-}
-.terminal-header-title { font-size: 11px; color: var(--amber); letter-spacing: .08em; }
-.terminal-dots { display: flex; gap: 5px; }
-.terminal-dot { width: 10px; height: 10px; border-radius: 50%; }
-.td-red { background: #f87171; }
-.td-yellow { background: var(--amber); }
-.td-green { background: var(--green); }
-.terminal-output {
-  flex: 1;
-  overflow-y: auto;
-  padding: 8px 14px;
-  color: #c9d1e6;
-  white-space: pre-wrap;
-  word-break: break-all;
-}
-.term-line-out { color: #c9d1e6; }
-.term-line-cmd { color: var(--amber); }
-.term-line-err { color: var(--red); }
-.terminal-input-row {
-  display: flex;
-  align-items: center;
-  gap: 0;
-  padding: 6px 14px;
-  border-top: 1px solid var(--border);
-  background: #080a10;
-  flex-shrink: 0;
-}
-.term-prompt { color: var(--green); margin-right: 6px; white-space: nowrap; }
-.term-input {
-  flex: 1;
-  background: none;
-  border: none;
-  outline: none;
-  color: var(--text0);
-  font-family: var(--mono);
-  font-size: 12px;
-  caret-color: var(--amber);
+.bulkbar.show{opacity:1;pointer-events:auto;transform:translateX(-50%)}
+.bulkbar .count{
+  font-family:var(--mono);font-size:11.5px;font-weight:600;color:var(--acc);
+  background:rgba(99,102,241,.12);border-radius:8px;padding:5px 10px;margin-right:2px;
 }
 
-/* ── MODALS ── */
-.overlay {
-  position: fixed; inset: 0;
-  background: rgba(8,10,16,.75);
-  backdrop-filter: blur(2px);
-  z-index: 1000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+/* statusbar */
+.statusbar{
+  display:flex;align-items:center;gap:14px;height:28px;padding:0 14px;flex-shrink:0;
+  background:var(--glass);border-top:1px solid var(--border);
+  font-family:var(--mono);font-size:10px;color:var(--text2);user-select:none;
 }
-.overlay.hidden { display: none; }
-.modal {
-  background: var(--bg1);
-  border: 1px solid var(--border-hi);
-  border-radius: 10px;
-  width: 540px;
-  max-width: 95vw;
-  max-height: 90vh;
-  display: flex;
-  flex-direction: column;
-  box-shadow: var(--shadow);
-}
-.modal.modal-lg { width: 860px; }
-.modal-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 14px 20px;
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-}
-.modal-title { font-family: var(--mono); font-size: 13px; color: var(--text0); font-weight: 600; }
-.modal-close {
-  background: none; border: none; color: var(--text2);
-  cursor: pointer; font-size: 18px; line-height: 1; padding: 2px;
-}
-.modal-close:hover { color: var(--red); }
-.modal-body { padding: 20px; overflow-y: auto; flex: 1; }
-.modal-footer { padding: 14px 20px; border-top: 1px solid var(--border); display: flex; gap: 8px; justify-content: flex-end; flex-shrink: 0; }
-.btn-primary {
-  background: var(--amber);
-  color: #0d0f14;
-  border: none;
-  border-radius: var(--radius);
-  font-family: var(--mono);
-  font-size: 12px;
-  font-weight: 600;
-  padding: 7px 16px;
-  cursor: pointer;
-}
-.btn-primary:hover { opacity: .88; }
-.btn-cancel {
-  background: var(--bg3);
-  border: 1px solid var(--border);
-  color: var(--text1);
-  border-radius: var(--radius);
-  font-family: var(--mono);
-  font-size: 12px;
-  padding: 7px 14px;
-  cursor: pointer;
-}
-.btn-cancel:hover { border-color: var(--border-hi); }
+.statusbar b{color:var(--text1);font-weight:600}
+#status-msg{color:var(--green)}
+#status-msg.err{color:var(--red)}
 
-/* Editor */
-#editor-textarea {
-  width: 100%;
-  background: #080a10;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  color: #c9d1e6;
-  font-family: var(--mono);
-  font-size: 12px;
-  line-height: 1.6;
-  padding: 12px;
-  resize: vertical;
-  min-height: 360px;
-  outline: none;
-  tab-size: 4;
+/* ── TERMINAL ─────────────────────────────────────── */
+.term-panel{
+  height:280px;background:#04060c;border-top:2px solid rgba(99,102,241,.5);
+  display:flex;flex-direction:column;flex-shrink:0;font-family:var(--mono);font-size:12px;
+  transition:height .2s var(--ease);
 }
-#editor-textarea:focus { border-color: var(--amber-dim); }
-
-/* Image preview */
-.preview-img { max-width: 100%; max-height: 60vh; display: block; margin: 0 auto; border-radius: var(--radius); }
-
-/* Upload drop zone */
-.drop-zone {
-  border: 2px dashed var(--border-hi);
-  border-radius: 10px;
-  padding: 36px;
-  text-align: center;
-  cursor: pointer;
-  transition: border-color .15s, background .15s;
-  font-family: var(--mono);
-  color: var(--text2);
+.term-panel.fullscreen{height:calc(100vh - 54px - 28px);height:calc(100dvh - 82px)}
+.term-head{
+  display:flex;align-items:center;gap:8px;padding:6px 12px;flex-shrink:0;
+  border-bottom:1px solid var(--border);background:rgba(255,255,255,.02);
 }
-.drop-zone:hover, .drop-zone.drag-over {
-  border-color: var(--amber);
-  background: rgba(245,166,35,.04);
-  color: var(--text1);
-}
-.drop-zone .drop-icon { font-size: 32px; margin-bottom: 10px; display: block; }
-#upload-file-input { display: none; }
-.upload-list { margin-top: 14px; }
-.upload-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 6px 10px;
-  background: var(--bg2);
-  border-radius: 4px;
-  margin-bottom: 4px;
-  font-size: 11px;
-  font-family: var(--mono);
-  color: var(--text1);
-}
-.upload-item .ok { color: var(--green); }
-.upload-item .fail { color: var(--red); }
+.term-dots{display:flex;gap:6px}
+.tdot{width:11px;height:11px;border-radius:50%;cursor:pointer}
+.tdot.r{background:#ff5f57}.tdot.y{background:#febc2e}.tdot.g{background:#28c840}
+.term-title{font-size:10.5px;color:var(--acc);letter-spacing:.1em;text-transform:uppercase}
+.term-cwd{margin-left:auto;font-size:10px;color:var(--text2);overflow:hidden;text-overflow:ellipsis;max-width:45%;white-space:nowrap}
+.term-out{flex:1;overflow-y:auto;padding:10px 14px;color:#c6cfee;white-space:pre-wrap;word-break:break-all}
+.tl-cmd{color:var(--acc)}.tl-out{color:#c6cfee}.tl-err{color:var(--red)}
+.term-inrow{display:flex;align-items:center;padding:7px 14px;border-top:1px solid var(--border)}
+.term-prompt{color:var(--green);margin-right:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:40%}
+.term-input{flex:1;background:none;border:none;outline:none;color:#eef1fa;font-family:var(--mono);font-size:12px;caret-color:var(--acc)}
 
-/* Context menu */
-.ctx-menu {
-  position: fixed;
-  background: var(--bg2);
-  border: 1px solid var(--border-hi);
-  border-radius: 8px;
-  padding: 4px;
-  z-index: 2000;
-  min-width: 180px;
-  box-shadow: var(--shadow);
+/* ── MODALS ───────────────────────────────────────── */
+.overlay{
+  position:fixed;inset:0;z-index:1500;background:rgba(3,5,12,.66);
+  backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);
+  display:flex;align-items:center;justify-content:center;padding:18px;
+  animation:fadeIn .16s ease;
 }
-.ctx-menu.hidden { display: none; }
-.ctx-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 12px;
-  color: var(--text1);
-  font-size: 12px;
-  font-family: var(--mono);
-  cursor: pointer;
-  border-radius: 5px;
-  transition: background .08s, color .08s;
+.overlay.hidden,.hiddenx{display:none!important}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+.modal{
+  width:540px;max-width:96vw;max-height:88vh;display:flex;flex-direction:column;
+  background:var(--bg1);border:1px solid var(--border-hi);border-radius:20px;
+  box-shadow:var(--shadow);animation:sheetIn .22s var(--ease);overflow:hidden;
 }
-.ctx-item:hover { background: var(--bg3); color: var(--text0); }
-.ctx-item.danger:hover { background: rgba(248,113,113,.1); color: var(--red); }
-.ctx-sep { height: 1px; background: var(--border); margin: 4px 8px; }
+.modal.lg{width:900px}
+@keyframes sheetIn{from{opacity:0;transform:translateY(16px) scale(.97)}to{opacity:1;transform:none}}
+.m-head{display:flex;align-items:center;gap:10px;padding:15px 20px;border-bottom:1px solid var(--border);flex-shrink:0}
+.m-title{font-size:14px;font-weight:700;flex:1;display:flex;align-items:center;gap:8px;min-width:0}
+.m-title small{color:var(--text2);font-weight:500;font-family:var(--mono);font-size:10.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.m-close{background:none;border:none;color:var(--text2);font-size:19px;cursor:pointer;padding:4px;border-radius:8px;line-height:1}
+.m-close:hover{color:var(--red);background:var(--glass-hi)}
+.m-body{padding:20px;overflow-y:auto;flex:1;min-height:0}
+.m-foot{padding:13px 20px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;flex-shrink:0}
+.dirty-dot{width:8px;height:8px;border-radius:50%;background:var(--amber);display:none;box-shadow:0 0 8px var(--amber)}
+.dirty .dirty-dot{display:block}
 
-/* Input field in modal */
-.modal-input {
-  width: 100%;
-  background: var(--bg2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  color: var(--text0);
-  font-family: var(--mono);
-  font-size: 13px;
-  padding: 9px 12px;
-  outline: none;
-  margin-top: 8px;
+/* editor */
+.ed-shell{display:flex;background:#04060c;border:1px solid var(--border);border-radius:12px;overflow:hidden;height:min(56vh,520px)}
+[data-theme="light"] .ed-shell{background:#fbfcff}
+.ed-gutter{
+  padding:12px 8px 12px 14px;text-align:right;color:var(--text2);
+  font-family:var(--mono);font-size:11.5px;line-height:1.65;user-select:none;
+  overflow:hidden;background:rgba(255,255,255,.03);border-right:1px solid var(--border);
+  min-width:46px;white-space:pre;
 }
-.modal-input:focus { border-color: var(--amber-dim); }
-.modal-label { font-size: 11px; font-family: var(--mono); color: var(--text1); text-transform: uppercase; letter-spacing: .07em; }
-
-/* Permission badge */
-.perm-exec { color: var(--green); }
-.perm-write { color: var(--amber); }
-.perm-read { color: var(--blue); }
-.perm-none { color: var(--text2); }
-
-/* Search results */
-.search-results { padding: 8px 0; }
-.search-result-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 7px 14px;
-  cursor: pointer;
-  transition: background .08s;
-  border-bottom: 1px solid rgba(46,52,71,.3);
+#ed-ta{
+  flex:1;background:none;border:none;outline:none;resize:none;
+  color:#dbe2f5;font-family:var(--mono);font-size:12.5px;line-height:1.65;
+  padding:12px 14px;white-space:pre;overflow:auto;tab-size:4;
 }
-.search-result-item:hover { background: var(--bg2); }
-.search-result-path { font-family: var(--mono); font-size: 10px; color: var(--text2); }
+.ed-status{display:flex;gap:14px;font-family:var(--mono);font-size:10px;color:var(--text2);padding:8px 2px 0}
 
-/* Toast */
-#toast {
-  position: fixed;
-  bottom: 24px;
-  right: 24px;
-  background: var(--bg2);
-  border: 1px solid var(--border-hi);
-  border-radius: 8px;
-  padding: 12px 18px;
-  font-family: var(--mono);
-  font-size: 12px;
-  color: var(--text0);
-  box-shadow: var(--shadow);
-  z-index: 3000;
-  transition: opacity .3s;
-  opacity: 0;
-  pointer-events: none;
-  max-width: 320px;
+/* media preview */
+.pv-body{display:flex;align-items:center;justify-content:center;min-height:220px;background:#04060c;border-radius:12px;overflow:hidden;border:1px solid var(--border)}
+[data-theme="light"] .pv-body{background:#0e1220}
+.pv-body img{max-width:100%;max-height:62vh;display:block}
+.pv-body video{max-width:100%;max-height:62vh;outline:none}
+.pv-body iframe{width:100%;height:62vh;border:none;background:#fff}
+.pv-body audio{width:92%;margin:34px 0}
+
+/* upload */
+.drop-zone{
+  border:2px dashed var(--border-hi);border-radius:16px;padding:34px 20px;
+  text-align:center;cursor:pointer;transition:all .16s;color:var(--text1);
 }
-#toast.show { opacity: 1; }
-#toast.ok { border-color: var(--green); color: var(--green); }
-#toast.err { border-color: var(--red); color: var(--red); }
-
-/* Properties table */
-.props-table { width: 100%; border-collapse: collapse; }
-.props-table td { padding: 6px 10px; font-size: 12px; border-bottom: 1px solid var(--border); }
-.props-table td:first-child { color: var(--text2); font-family: var(--mono); font-size: 11px; width: 120px; }
-
-/* Spinner */
-.spin {
-  display: inline-block;
-  width: 12px; height: 12px;
-  border: 2px solid var(--border);
-  border-top-color: var(--amber);
-  border-radius: 50%;
-  animation: spin .6s linear infinite;
+.drop-zone:hover,.drop-zone.over{border-color:var(--acc);background:rgba(99,102,241,.06);color:var(--text0)}
+.drop-zone .dz-i{font-size:34px;display:block;margin-bottom:8px}
+.upl-progress{margin-top:14px}
+.pbar{height:7px;border-radius:99px;background:var(--bg3);overflow:hidden}
+.pbar>div{height:100%;width:0%;background:var(--grad);border-radius:99px;transition:width .2s}
+.pline{
+  display:flex;justify-content:space-between;gap:10px;font-family:var(--mono);
+  font-size:11px;color:var(--text1);padding:6px 10px;background:var(--glass);
+  border-radius:8px;margin-top:6px;
 }
-@keyframes spin { to { transform: rotate(360deg); } }
-
-/* View toggle */
-.view-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 10px; padding: 14px; }
-.grid-item {
-  display: flex; flex-direction: column; align-items: center;
-  gap: 6px; padding: 12px 8px;
-  background: var(--bg2); border: 1px solid var(--border);
-  border-radius: 8px; cursor: pointer; transition: all .12s;
-  text-align: center;
+.pline .ok{color:var(--green)}.pline .fail{color:var(--red)}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+.chip{
+  font-family:var(--mono);font-size:11px;color:var(--text1);cursor:pointer;
+  border:1px solid var(--border);background:var(--glass);border-radius:99px;padding:4px 11px;
 }
-.grid-item:hover { border-color: var(--amber); background: rgba(245,166,35,.04); }
-.grid-item.selected { border-color: var(--amber); background: rgba(245,166,35,.08); }
-.grid-icon { font-size: 28px; }
-.grid-name { font-size: 11px; color: var(--text1); word-break: break-all; line-height: 1.3; }
+.chip:hover{border-color:var(--acc);color:var(--acc)}
+.props-tbl{width:100%;border-collapse:collapse}
+.props-tbl td{padding:8px 10px;font-size:12.5px;border-bottom:1px solid var(--border)}
+.props-tbl td:first-child{color:var(--text2);font-family:var(--mono);font-size:10.5px;width:118px;text-transform:uppercase;letter-spacing:.05em}
+.props-tbl td:last-child{font-family:var(--mono);word-break:break-all}
 
-.hidden { display: none !important; }
+/* search results */
+.sr-item{display:flex;align-items:center;gap:12px;padding:9px 16px;cursor:pointer;border-bottom:1px solid var(--border);transition:background .1s}
+.sr-item:hover{background:var(--glass-hi)}
+.sr-path{font-family:var(--mono);font-size:10px;color:var(--text2)}
+
+/* context menu / action sheet */
+.ctx{
+  position:fixed;z-index:2500;min-width:190px;
+  background:var(--bg2);border:1px solid var(--border-hi);border-radius:14px;
+  padding:5px;box-shadow:var(--shadow);animation:popIn .13s var(--ease);
+}
+.ctx-item{
+  display:flex;align-items:center;gap:10px;width:100%;text-align:left;
+  padding:8px 12px;border:none;background:none;color:var(--text1);
+  font-size:12.5px;border-radius:9px;cursor:pointer;
+}
+.ctx-item:hover{background:var(--glass-hi);color:var(--text0)}
+.ctx-item.danger:hover{background:color-mix(in srgb,var(--red) 12%,transparent);color:var(--red)}
+.ctx-sep{height:1px;background:var(--border);margin:4px 9px}
+
+/* command palette */
+.palette{
+  width:600px;max-width:94vw;background:var(--bg1);border:1px solid var(--border-hi);
+  border-radius:18px;box-shadow:var(--shadow);overflow:hidden;
+  animation:sheetIn .18s var(--ease);align-self:flex-start;margin-top:9vh;
+}
+.pal-input{
+  width:100%;background:none;border:none;outline:none;
+  font-size:15px;padding:17px 20px;color:var(--text0);
+  border-bottom:1px solid var(--border);
+}
+.pal-list{max-height:52vh;overflow-y:auto;padding:6px}
+.pal-item{
+  display:flex;align-items:center;gap:12px;padding:10px 13px;border-radius:11px;cursor:pointer;
+}
+.pal-item.on,.pal-item:hover{background:linear-gradient(90deg,rgba(99,102,241,.14),rgba(34,211,238,.05))}
+.pal-item .pi{width:26px;text-align:center;font-size:16px}
+.pal-item .pt{flex:1;min-width:0}
+.pal-item .pt b{display:block;font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pal-item .pt span{font-size:10.5px;color:var(--text2);font-family:var(--mono)}
+.pal-foot{
+  display:flex;gap:14px;padding:9px 16px;border-top:1px solid var(--border);
+  font-size:10.5px;color:var(--text2);align-items:center;
+}
+
+/* toasts */
+#toasts{position:fixed;top:16px;right:16px;z-index:4000;display:flex;flex-direction:column;gap:8px;max-width:min(92vw,340px)}
+.toast{
+  display:flex;align-items:center;gap:10px;padding:11px 16px;border-radius:13px;
+  background:var(--bg2);border:1px solid var(--border-hi);box-shadow:var(--shadow);
+  font-size:12.5px;font-weight:500;animation:toastIn .25s var(--ease);
+}
+@keyframes toastIn{from{opacity:0;transform:translateX(24px)}to{opacity:1;transform:none}}
+.toast.out{opacity:0;transform:translateX(24px);transition:all .3s}
+.toast.ok{border-left:3px solid var(--green)}
+.toast.err{border-left:3px solid var(--red)}
+.toast.info{border-left:3px solid var(--acc)}
+
+.spin{display:inline-block;width:13px;height:13px;border:2px solid var(--border-hi);border-top-color:var(--acc);border-radius:50%;animation:rot .6s linear infinite;vertical-align:-2px}
+@keyframes rot{to{transform:rotate(360deg)}}
+
+/* ── RESPONSIVE ───────────────────────────────────── */
+@media (max-width:920px){
+  .hamburger{display:inline-flex}
+  .sidebar{
+    position:fixed;left:0;top:0;bottom:0;width:264px;
+    transform:translateX(-105%);transition:transform .26s var(--ease);
+    background:var(--bg1);box-shadow:var(--shadow);
+  }
+  .sidebar.open{transform:none}
+  .brand em{display:none}
+  .btn .blabel{display:none}
+  .btn.primary{padding:7px 10px}
+}
+@media (max-width:640px){
+  :root{--cols:30px minmax(0,1fr) 34px}
+  .fhead{grid-template-columns:var(--cols)}
+  .fhead .h-size,.fhead .h-date,.fhead .h-perm{display:none}
+  .fsize,.fdate,.fperm{display:none}
+  .toolbar{padding:8px 10px;gap:6px}
+  .filter-box input{width:100px}
+  .overlay{padding:0;align-items:flex-end}
+  .modal{width:100%;max-width:none;max-height:90vh;border-radius:20px 20px 0 0;animation:sheetUp .26s var(--ease)}
+  @keyframes sheetUp{from{transform:translateY(60%)}to{transform:none}}
+  .palette{width:100%;max-width:none;margin-top:6vh;border-radius:18px 18px 0 0;align-self:flex-end}
+  .bulkbar{bottom:44px;width:94vw}
+  .ctx{left:50%!important;right:auto!important;bottom:12px;top:auto!important;transform:translateX(-50%);min-width:min(92vw,320px)}
+  .term-panel.fullscreen{height:calc(100dvh - 54px)}
+  .statusbar{gap:8px}
+  #st-php{display:none}
+}
 </style>
 </head>
 <body>
 
 <?php if (!fm_is_logged_in()): ?>
-<!-- ============================================================
-     LOGIN SCREEN
-     ============================================================ -->
+<!-- ================= LOGIN ================= -->
 <div class="login-wrap">
-  <div class="login-box">
-    <div class="login-logo">
-      <span class="icon">🗄️</span>
-      <h1>RhelsFS</h1>
-      <p>Secure File Manager v<?= FM_VERSION ?></p>
+  <div class="login-brand">
+    <div class="logo-big">🗄️</div>
+    <h1>RhelsFS<br>File Manager</h1>
+    <div class="tag">Single-file PHP file manager &amp; web terminal — nothing to install, drop it in and go.</div>
+    <div class="login-feats">
+      <div class="login-feat"><div class="fi">🛡️</div><div><b>Hardened by default</b>CSRF protection, brute-force lockout, signed sessions.</div></div>
+      <div class="login-feat"><div class="fi">📂</div><div><b>Full file operations</b>Upload, edit, archive, permissions — all from the browser.</div></div>
+      <div class="login-feat"><div class="fi">⌨️</div><div><b>Built-in terminal</b>Safelisted shell access with sandboxed working directory.</div></div>
     </div>
-    <?php if ($login_error): ?>
-      <div class="login-error">⚠️ <?= htmlspecialchars($login_error) ?></div>
-    <?php endif; ?>
-    <?php if (isset($_GET['expired'])): ?>
-      <div class="login-error">⏱ Session expired. Please log in again.</div>
-    <?php endif; ?>
-    <form method="POST">
-      <div class="form-group">
+  </div>
+  <div class="login-card">
+    <h2>Welcome back</h2>
+    <div class="sub">Sign in to manage your files</div>
+    <?php if ($login_error): ?><div class="login-error">⚠️ <?= htmlspecialchars($login_error) ?></div><?php endif; ?>
+    <?php if (isset($_GET['expired'])): ?><div class="login-error">⏱ Session expired — sign in again.</div><?php endif; ?>
+    <form method="POST" autocomplete="on">
+      <div class="fgroup">
         <label>Username</label>
         <input type="text" name="username" class="form-control" autocomplete="username" autofocus required>
       </div>
-      <div class="form-group">
+      <div class="fgroup">
         <label>Password</label>
-        <input type="password" name="password" class="form-control" autocomplete="current-password" required>
+        <div class="input-wrap">
+          <input type="password" name="password" id="pw" class="form-control" style="padding-right:42px" autocomplete="current-password" required>
+          <button type="button" class="toggle-pw" onclick="const p=document.getElementById('pw');p.type=p.type==='password'?'text':'password'">👁</button>
+        </div>
       </div>
-      <button type="submit" name="fm_login" class="btn-login">→ Login</button>
+      <button type="submit" name="fm_login" class="btn-login">Sign in →</button>
     </form>
+    <div class="login-foot">RhelsFS v<?= FM_VERSION ?> · secured session</div>
   </div>
 </div>
 
 <?php else: ?>
-<!-- ============================================================
-     MAIN APP
-     ============================================================ -->
+<!-- ================= MAIN APP ================= -->
 <div id="app">
 
   <!-- TOPBAR -->
   <div class="topbar">
-    <div class="topbar-logo">RhelsFS <span>/ <?= htmlspecialchars(FM_USERNAME) ?></span></div>
+    <button class="btn icon hamburger" id="btn-menu" aria-label="Menu">☰</button>
+    <div class="brand"><span class="logo-mini">🗄️</span>RhelsFS <em>/ <?= htmlspecialchars(FM_USERNAME) ?></em></div>
     <div class="topbar-sep"></div>
-    <div class="topbar-actions">
-      <button class="btn amber" onclick="openUploadModal()">⬆ Upload</button>
-      <button class="btn" onclick="openMkdirModal()">📁 New Folder</button>
-      <button class="btn" onclick="openNewFileModal()">📄 New File</button>
-      <?php if (FM_TERMINAL): ?>
-      <button class="btn" onclick="toggleTerminal()" id="term-btn">⌨ Terminal</button>
-      <?php endif; ?>
-      <button class="btn danger" onclick="location.href='?logout'">⏻ Logout</button>
-    </div>
+    <button class="btn icon" id="btn-theme" title="Toggle theme" aria-label="Toggle theme">🌙</button>
+    <button class="btn primary" onclick="openUploadModal()"><span style="font-size:14px">⬆</span><span class="blabel">Upload</span></button>
+    <button class="btn" onclick="openMkdirModal()">📁<span class="blabel">&nbsp;Folder</span></button>
+    <button class="btn" onclick="openNewFileModal()">📄<span class="blabel">&nbsp;File</span></button>
+    <?php if (FM_TERMINAL): ?><button class="btn" id="btn-term" onclick="toggleTerm()">⌨️<span class="blabel">&nbsp;Terminal</span></button><?php endif; ?>
+    <button class="btn danger" onclick="location.href='?logout'" title="Logout">⏻</button>
   </div>
 
   <div class="main">
+
     <!-- SIDEBAR -->
-    <div class="sidebar">
-      <div class="sidebar-section">
-        <div class="sidebar-heading">Navigation</div>
-        <div class="sidebar-link active" onclick="navTo('/')" id="nav-root">
-          <span class="icon dir-icon">🏠</span> Root
+    <aside class="sidebar" id="sidebar">
+      <div class="sb-section">
+        <div class="sb-heading">Quick access</div>
+        <div class="sb-link active" data-nav="/"><span class="si">🏠</span> Root</div>
+        <div class="sb-link" data-nav="/tmp"><span class="si">📦</span> tmp</div>
+        <div class="sb-link" onclick="doSearch()"><span class="si">🔍</span> Deep search…</div>
+      </div>
+      <div class="sb-section">
+        <div class="sb-heading">Shortcuts</div>
+        <div class="sb-link" onclick="openPalette()"><span class="si">⚡</span> Command palette <span class="kbd" style="margin-left:auto">⌘K</span></div>
+        <div class="sb-link" onclick="toggleView()"><span class="si">▦</span> Toggle view</div>
+        <div class="sb-link" onclick="compressSelected()"><span class="si">🗜️</span> Compress selected</div>
+        <div class="sb-link" onclick="deleteSelected()"><span class="si">🗑️</span> Delete selected</div>
+      </div>
+      <div class="sb-spacer"></div>
+      <div class="disk-widget">
+        <div class="disk-ring">
+          <svg width="104" height="104" viewBox="0 0 120 120">
+            <defs><linearGradient id="ringGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stop-color="#6366f1"/><stop offset="100%" stop-color="#22d3ee"/>
+            </linearGradient></defs>
+            <circle class="ring-bg" cx="60" cy="60" r="52"/>
+            <circle class="ring-fg" id="ring-fg" cx="60" cy="60" r="52" stroke-dasharray="326.7" stroke-dashoffset="326.7"/>
+          </svg>
+          <div class="ring-txt"><b id="disk-pct">–</b><span>used</span></div>
         </div>
-        <div class="sidebar-link" onclick="navTo('/tmp')" id="nav-tmp">
-          <span class="icon">📦</span> /tmp
+        <div class="disk-meta">
+          <b id="disk-used">–</b> of <b id="disk-total">–</b><br>free <b id="disk-free">–</b>
         </div>
       </div>
-      <div class="sidebar-section">
-        <div class="sidebar-heading">Actions</div>
-        <div class="sidebar-link" onclick="deleteSelected()">
-          <span class="icon">🗑</span> Delete Selected
-        </div>
-        <div class="sidebar-link" onclick="compressSelected()">
-          <span class="icon">🗜</span> Compress
-        </div>
-        <div class="sidebar-link" onclick="toggleView()">
-          <span class="icon">⊞</span> Toggle View
-        </div>
-      </div>
-      <div style="flex:1"></div>
-      <div class="disk-meter" id="disk-meter">
-        <div class="disk-meter-label">
-          <span>Storage</span>
-          <span id="disk-used-pct">…</span>
-        </div>
-        <div class="disk-bar"><div class="disk-fill" id="disk-fill" style="width:0%"></div></div>
-        <div style="font-family:var(--mono);font-size:10px;color:var(--text2);margin-top:5px;">
-          <span id="disk-used-txt">-</span> / <span id="disk-total-txt">-</span>
-        </div>
-      </div>
-    </div>
+      <div class="sb-chip"><span id="sb-php">PHP</span><span id="sb-os">—</span></div>
+    </aside>
 
     <!-- CONTENT -->
     <div class="content">
-      <!-- TOOLBAR -->
       <div class="toolbar">
-        <div class="breadcrumb" id="breadcrumb"></div>
-        <div class="search-box">
-          <input type="text" id="search-input" placeholder="Search files…" onkeydown="if(event.key==='Enter')doSearch()">
-          <button class="search-btn" onclick="doSearch()">🔍</button>
+        <div class="nav-arrows">
+          <button class="btn icon" id="btn-back" title="Back" disabled>←</button>
+          <button class="btn icon" id="btn-fwd" title="Forward" disabled>→</button>
         </div>
-        <button class="btn sm" onclick="refreshDir()">↻</button>
-        <button class="btn sm icon-only" id="sort-btn" title="Sort" onclick="cycleSortMode()">⇅</button>
+        <div class="crumbwrap"><div class="crumbs" id="crumbs"></div></div>
+        <div class="filter-box" id="filter-box">
+          <span style="color:var(--text2);font-size:12px">🔎</span>
+          <input type="text" id="filter-input" placeholder="Filter…" autocomplete="off">
+          <button class="fx" onclick="clearFilter()" aria-label="Clear">✕</button>
+        </div>
+        <button class="btn icon" onclick="doSearch()" title="Deep search">🌐</button>
+        <div class="sort-wrap">
+          <button class="btn icon" id="btn-sort" title="Sort">⇅</button>
+          <div class="pop-menu hiddenx" id="sort-pop"></div>
+        </div>
+        <button class="btn icon" id="btn-view" onclick="toggleView()" title="List / grid">▦</button>
+        <button class="btn icon" onclick="refreshDir()" title="Refresh">↻</button>
       </div>
 
-      <!-- FILE AREA -->
-      <div class="file-area" id="file-area" oncontextmenu="return false;">
-        <table class="file-table" id="file-table">
-          <thead>
-            <tr>
-              <th class="col-check"><input type="checkbox" id="check-all" class="check" onchange="toggleCheckAll(this)"></th>
-              <th onclick="setSortColumn('name')">Name</th>
-              <th onclick="setSortColumn('size')">Size</th>
-              <th onclick="setSortColumn('mtime')">Modified</th>
-              <th onclick="setSortColumn('perms')">Perms</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody id="file-tbody"></tbody>
-        </table>
-        <div class="view-grid hidden" id="grid-view"></div>
+      <div class="file-area" id="file-area">
+        <div class="drop-overlay" id="drop-overlay"><span class="di">📥</span>Drop files to upload them here</div>
+
+        <!-- list header + rows injected here -->
+        <div class="fhead" id="list-head">
+          <div class="chk"><input type="checkbox" id="check-all" title="Select all"></div>
+          <div class="sortable" data-sort="name">Name <span class="arrow"></span></div>
+          <div class="sortable h-size" data-sort="size">Size <span class="arrow"></span></div>
+          <div class="sortable h-date" data-sort="mtime">Modified <span class="arrow"></span></div>
+          <div class="h-perm">Perms</div>
+          <div></div>
+        </div>
+        <div id="file-list"></div>
+        <div class="grid-view hiddenx" id="grid-view"></div>
+        <div id="skeleton" class="hiddenx"></div>
+        <div id="empty-slot"></div>
+      </div>
+
+      <!-- BULK ACTION BAR -->
+      <div class="bulkbar" id="bulkbar">
+        <span class="count" id="bulk-count">0</span>
+        <button class="btn sm" onclick="bulkDownload()">⬇ Download</button>
+        <button class="btn sm" onclick="compressSelected()">🗜 Zip</button>
+        <button class="btn sm" onclick="bulkCopyMove('copy')">📋 Copy</button>
+        <button class="btn sm" onclick="bulkCopyMove('move')">✂ Move</button>
+        <button class="btn sm danger" onclick="deleteSelected()">🗑 Delete</button>
+        <button class="btn sm icon" onclick="clearSelection()" title="Clear selection">✕</button>
       </div>
 
       <!-- STATUS BAR -->
       <div class="statusbar">
-        <span id="status-count">0 items</span>
-        <span id="status-sel">0 selected</span>
+        <b id="st-count">0 items</b>
+        <span id="st-sel"></span>
         <span id="status-msg"></span>
         <span style="flex:1"></span>
-        <span id="status-php"></span>
+        <span id="st-php"></span>
       </div>
 
       <!-- TERMINAL -->
       <?php if (FM_TERMINAL): ?>
-      <div class="terminal-panel hidden" id="terminal-panel">
-        <div class="terminal-header">
-          <div class="terminal-dots">
-            <div class="terminal-dot td-red" onclick="closeTerminal()" title="Close" style="cursor:pointer"></div>
-            <div class="terminal-dot td-yellow"></div>
-            <div class="terminal-dot td-green"></div>
-          </div>
-          <div class="terminal-header-title">⌨ Web Terminal</div>
-          <div style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--text2);" id="term-cwd-display"></div>
-          <button class="btn sm" onclick="clearTerm()" style="margin-left:8px;">Clear</button>
+      <div class="term-panel hiddenx" id="term-panel">
+        <div class="term-head">
+          <div class="term-dots"><div class="tdot r" onclick="closeTerm()" title="Close"></div><div class="tdot y"></div><div class="tdot g"></div></div>
+          <div class="term-title">Terminal</div>
+          <div class="term-cwd" id="term-cwd"></div>
+          <button class="btn sm icon" onclick="clearTerm()" title="Clear (Ctrl+L)">🧹</button>
+          <button class="btn sm icon" onclick="toggleTermFs()" title="Fullscreen" id="btn-term-fs">⛶</button>
         </div>
-        <div class="terminal-output" id="terminal-output"></div>
-        <div class="terminal-input-row">
+        <div class="term-out" id="term-out"></div>
+        <div class="term-inrow">
           <span class="term-prompt" id="term-prompt">$ </span>
-          <input type="text" class="term-input" id="term-input"
-            placeholder="Enter command…"
-            onkeydown="handleTermKey(event)"
-            autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+          <input class="term-input" id="term-input" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Type a command… ('help' for tips)">
         </div>
       </div>
       <?php endif; ?>
@@ -1431,1002 +1335,993 @@ body::before {
   </div>
 </div>
 
-<!-- ── MODALS ── -->
+<!-- SIDEBAR BACKDROP (mobile) -->
+<div class="sb-backdrop hiddenx" id="sb-backdrop"></div>
+
+<!-- ══ MODALS ══ -->
 
 <!-- Upload -->
-<div class="overlay hidden" id="modal-upload">
+<div class="overlay hiddenx" id="m-upload">
   <div class="modal">
-    <div class="modal-header">
-      <div class="modal-title">⬆ Upload Files</div>
-      <button class="modal-close" onclick="closeModal('modal-upload')">✕</button>
-    </div>
-    <div class="modal-body">
-      <div class="drop-zone" id="drop-zone" onclick="document.getElementById('upload-file-input').click()">
-        <span class="drop-icon">☁</span>
-        <strong>Click to browse</strong> or drag & drop files here<br>
-        <small style="color:var(--text2);margin-top:4px;display:block">Max <?= fm_human_size(FM_MAX_UPLOAD) ?> per file</small>
+    <div class="m-head"><div class="m-title">⬆ Upload files<small><?= fm_human_size(FM_MAX_UPLOAD) ?> max per file</small></div><button class="m-close" onclick="closeModal('m-upload')">✕</button></div>
+    <div class="m-body">
+      <div class="drop-zone" id="dz"><span class="dz-i">☁️</span><b>Click to browse</b> or drag &amp; drop<br><small style="color:var(--text2)">multiple files supported</small></div>
+      <input type="file" id="file-input" multiple style="display:none">
+      <div class="upl-progress hiddenx" id="upl-progress">
+        <div class="pbar"><div id="upl-bar"></div></div>
+        <div style="display:flex;justify-content:space-between;font-family:var(--mono);font-size:10px;color:var(--text2);margin-top:5px"><span id="upl-label">Uploading…</span><span id="upl-pct">0%</span></div>
       </div>
-      <input type="file" id="upload-file-input" multiple onchange="handleFileSelect(this.files)">
-      <div class="upload-list" id="upload-list"></div>
+      <div id="upl-list"></div>
     </div>
-    <div class="modal-footer">
-      <button class="btn-cancel" onclick="closeModal('modal-upload')">Close</button>
-      <button class="btn-primary" id="upload-btn" onclick="doUpload()">Upload</button>
+    <div class="m-foot">
+      <button class="btn" onclick="closeModal('m-upload')">Close</button>
+      <button class="btn primary" id="btn-upload" onclick="doUpload()">Upload</button>
     </div>
   </div>
 </div>
 
 <!-- New folder -->
-<div class="overlay hidden" id="modal-mkdir">
+<div class="overlay hiddenx" id="m-mkdir">
   <div class="modal">
-    <div class="modal-header">
-      <div class="modal-title">📁 New Folder</div>
-      <button class="modal-close" onclick="closeModal('modal-mkdir')">✕</button>
+    <div class="m-head"><div class="m-title">📁 New folder</div><button class="m-close" onclick="closeModal('m-mkdir')">✕</button></div>
+    <div class="m-body">
+      <div class="fgroup"><label>Name</label><input class="form-control" id="mkdir-name" placeholder="my-folder" onkeydown="if(event.key==='Enter')doMkdir()"></div>
     </div>
-    <div class="modal-body">
-      <div class="modal-label">Folder Name</div>
-      <input type="text" id="mkdir-name" class="modal-input" placeholder="e.g. my-folder" onkeydown="if(event.key==='Enter')doMkdir()">
-    </div>
-    <div class="modal-footer">
-      <button class="btn-cancel" onclick="closeModal('modal-mkdir')">Cancel</button>
-      <button class="btn-primary" onclick="doMkdir()">Create</button>
-    </div>
+    <div class="m-foot"><button class="btn" onclick="closeModal('m-mkdir')">Cancel</button><button class="btn primary" onclick="doMkdir()">Create</button></div>
   </div>
 </div>
 
 <!-- New file -->
-<div class="overlay hidden" id="modal-newfile">
+<div class="overlay hiddenx" id="m-newfile">
   <div class="modal">
-    <div class="modal-header">
-      <div class="modal-title">📄 New File</div>
-      <button class="modal-close" onclick="closeModal('modal-newfile')">✕</button>
+    <div class="m-head"><div class="m-title">📄 New file</div><button class="m-close" onclick="closeModal('m-newfile')">✕</button></div>
+    <div class="m-body">
+      <div class="fgroup"><label>Name</label><input class="form-control" id="newfile-name" placeholder="notes.txt" onkeydown="if(event.key==='Enter')doNewFile()"></div>
     </div>
-    <div class="modal-body">
-      <div class="modal-label">File Name</div>
-      <input type="text" id="newfile-name" class="modal-input" placeholder="e.g. index.html" onkeydown="if(event.key==='Enter')doNewFile()">
-    </div>
-    <div class="modal-footer">
-      <button class="btn-cancel" onclick="closeModal('modal-newfile')">Cancel</button>
-      <button class="btn-primary" onclick="doNewFile()">Create</button>
-    </div>
+    <div class="m-foot"><button class="btn" onclick="closeModal('m-newfile')">Cancel</button><button class="btn primary" onclick="doNewFile()">Create &amp; edit</button></div>
   </div>
 </div>
 
 <!-- Editor -->
-<div class="overlay hidden" id="modal-editor">
-  <div class="modal modal-lg">
-    <div class="modal-header">
-      <div class="modal-title" id="editor-title">Editor</div>
-      <div style="display:flex;gap:8px;align-items:center">
-        <span style="font-family:var(--mono);font-size:10px;color:var(--text2);" id="editor-info"></span>
-        <button class="modal-close" onclick="closeModal('modal-editor')">✕</button>
-      </div>
+<div class="overlay hiddenx" id="m-editor">
+  <div class="modal lg">
+    <div class="m-head dirty-dot-host" id="ed-host">
+      <div class="m-title" id="ed-title">✏ File<span class="dirty-dot" id="ed-dirty" title="Unsaved changes"></span><small id="ed-info"></small></div>
+      <button class="m-close" onclick="closeEditor()">✕</button>
     </div>
-    <div class="modal-body" style="padding:12px;">
-      <textarea id="editor-textarea" spellcheck="false" onkeydown="handleEditorKey(event)"></textarea>
+    <div class="m-body" style="padding:14px">
+      <div class="ed-shell"><pre class="ed-gutter" id="ed-gutter">1</pre><textarea id="ed-ta" spellcheck="false"></textarea></div>
+      <div class="ed-status"><span id="ed-pos">Ln 1, Col 1</span><span style="flex:1"></span><span>Ctrl+S save · Tab indents</span></div>
     </div>
-    <div class="modal-footer">
-      <button class="btn-cancel" onclick="closeModal('modal-editor')">Discard</button>
-      <button class="btn-primary" onclick="doSave()">💾 Save (Ctrl+S)</button>
+    <div class="m-foot">
+      <button class="btn" onclick="closeEditor()">Close</button>
+      <button class="btn primary" onclick="doSave()">💾 Save <span class="kbd" style="margin-left:4px">^S</span></button>
     </div>
   </div>
 </div>
 
-<!-- Image preview -->
-<div class="overlay hidden" id="modal-preview">
-  <div class="modal modal-lg">
-    <div class="modal-header">
-      <div class="modal-title" id="preview-title">Preview</div>
-      <button class="modal-close" onclick="closeModal('modal-preview')">✕</button>
-    </div>
-    <div class="modal-body" style="text-align:center;">
-      <img class="preview-img" id="preview-img" src="" alt="">
-    </div>
-    <div class="modal-footer">
-      <button class="btn-cancel" onclick="closeModal('modal-preview')">Close</button>
-      <button class="btn-primary" id="preview-dl-btn" onclick="">⬇ Download</button>
+<!-- Media preview -->
+<div class="overlay hiddenx" id="m-preview">
+  <div class="modal lg">
+    <div class="m-head"><div class="m-title" id="pv-title">Preview</div><button class="m-close" onclick="closeModal('m-preview')">✕</button></div>
+    <div class="m-body"><div class="pv-body" id="pv-body"></div></div>
+    <div class="m-foot">
+      <button class="btn" onclick="closeModal('m-preview')">Close</button>
+      <button class="btn primary" id="pv-dl">⬇ Download</button>
     </div>
   </div>
 </div>
 
 <!-- Rename -->
-<div class="overlay hidden" id="modal-rename">
+<div class="overlay hiddenx" id="m-rename">
   <div class="modal">
-    <div class="modal-header">
-      <div class="modal-title">✏ Rename</div>
-      <button class="modal-close" onclick="closeModal('modal-rename')">✕</button>
-    </div>
-    <div class="modal-body">
-      <div class="modal-label">New Name</div>
-      <input type="text" id="rename-input" class="modal-input" onkeydown="if(event.key==='Enter')doRename()">
-    </div>
-    <div class="modal-footer">
-      <button class="btn-cancel" onclick="closeModal('modal-rename')">Cancel</button>
-      <button class="btn-primary" onclick="doRename()">Rename</button>
-    </div>
+    <div class="m-head"><div class="m-title">✏ Rename</div><button class="m-close" onclick="closeModal('m-rename')">✕</button></div>
+    <div class="m-body"><div class="fgroup"><label id="rename-old" style="text-transform:none;letter-spacing:0;font-size:11px"></label><input class="form-control" id="rename-input" onkeydown="if(event.key==='Enter')doRename()"></div></div>
+    <div class="m-foot"><button class="btn" onclick="closeModal('m-rename')">Cancel</button><button class="btn primary" onclick="doRename()">Rename</button></div>
   </div>
 </div>
 
-<!-- chmod -->
-<div class="overlay hidden" id="modal-chmod">
+<!-- Chmod -->
+<div class="overlay hiddenx" id="m-chmod">
   <div class="modal">
-    <div class="modal-header">
-      <div class="modal-title">🔒 Change Permissions</div>
-      <button class="modal-close" onclick="closeModal('modal-chmod')">✕</button>
+    <div class="m-head"><div class="m-title">🔒 Permissions</div><button class="m-close" onclick="closeModal('m-chmod')">✕</button></div>
+    <div class="m-body">
+      <div class="fgroup"><label>Path</label><div style="font-family:var(--mono);font-size:11.5px;color:var(--text1)" id="chmod-path"></div></div>
+      <div class="fgroup"><label>Octal</label><input class="form-control" id="chmod-input" maxlength="4" placeholder="644" onkeydown="if(event.key==='Enter')doChmod()"></div>
+      <div class="chips" id="chmod-chips"></div>
     </div>
-    <div class="modal-body">
-      <div class="modal-label">Path</div>
-      <div style="font-family:var(--mono);font-size:12px;color:var(--text1);margin-bottom:14px;" id="chmod-path-display"></div>
-      <div class="modal-label">Octal Permissions</div>
-      <input type="text" id="chmod-input" class="modal-input" placeholder="e.g. 755" maxlength="4" onkeydown="if(event.key==='Enter')doChmod()">
-      <div style="font-family:var(--mono);font-size:10px;color:var(--text2);margin-top:10px;">
-        Common: 644 (file), 755 (dir), 600 (private), 777 (world-writable)
-      </div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn-cancel" onclick="closeModal('modal-chmod')">Cancel</button>
-      <button class="btn-primary" onclick="doChmod()">Apply</button>
-    </div>
+    <div class="m-foot"><button class="btn" onclick="closeModal('m-chmod')">Cancel</button><button class="btn primary" onclick="doChmod()">Apply</button></div>
   </div>
 </div>
 
 <!-- Properties -->
-<div class="overlay hidden" id="modal-props">
+<div class="overlay hiddenx" id="m-props">
   <div class="modal">
-    <div class="modal-header">
-      <div class="modal-title">ℹ Properties</div>
-      <button class="modal-close" onclick="closeModal('modal-props')">✕</button>
-    </div>
-    <div class="modal-body" id="props-body"></div>
-    <div class="modal-footer">
-      <button class="btn-cancel" onclick="closeModal('modal-props')">Close</button>
-    </div>
+    <div class="m-head"><div class="m-title">ℹ Properties</div><button class="m-close" onclick="closeModal('m-props')">✕</button></div>
+    <div class="m-body" id="props-body"></div>
+    <div class="m-foot"><button class="btn" onclick="closeModal('m-props')">Close</button></div>
   </div>
 </div>
 
-<!-- Copy/Move -->
-<div class="overlay hidden" id="modal-copymove">
+<!-- Copy / move -->
+<div class="overlay hiddenx" id="m-copymove">
   <div class="modal">
-    <div class="modal-header">
-      <div class="modal-title" id="copymove-title">Copy / Move</div>
-      <button class="modal-close" onclick="closeModal('modal-copymove')">✕</button>
+    <div class="m-head"><div class="m-title" id="cm-title">Copy</div><button class="m-close" onclick="closeModal('m-copymove')">✕</button></div>
+    <div class="m-body">
+      <div class="fgroup"><label>Destination directory</label><input class="form-control" id="cm-dest" placeholder="/" list="dir-suggest" onkeydown="if(event.key==='Enter')doCopyMove()">
+        <datalist id="dir-suggest"></datalist>
+      </div>
+      <div style="font-size:11.5px;color:var(--text2)" id="cm-src"></div>
     </div>
-    <div class="modal-body">
-      <div class="modal-label">Destination Path</div>
-      <input type="text" id="copymove-dest" class="modal-input" placeholder="e.g. /backups" onkeydown="if(event.key==='Enter')doCopyMove()">
-    </div>
-    <div class="modal-footer">
-      <button class="btn-cancel" onclick="closeModal('modal-copymove')">Cancel</button>
-      <button class="btn-primary" onclick="doCopyMove()">Go</button>
-    </div>
+    <div class="m-foot"><button class="btn" onclick="closeModal('m-copymove')">Cancel</button><button class="btn primary" id="cm-go" onclick="doCopyMove()">Go</button></div>
   </div>
 </div>
 
-<!-- Confirm delete -->
-<div class="overlay hidden" id="modal-delete">
+<!-- Delete confirm -->
+<div class="overlay hiddenx" id="m-delete">
   <div class="modal">
-    <div class="modal-header">
-      <div class="modal-title">🗑 Confirm Delete</div>
-      <button class="modal-close" onclick="closeModal('modal-delete')">✕</button>
-    </div>
-    <div class="modal-body" id="delete-body" style="font-family:var(--mono);font-size:12px;color:var(--text1);line-height:1.8;"></div>
-    <div class="modal-footer">
-      <button class="btn-cancel" onclick="closeModal('modal-delete')">Cancel</button>
-      <button class="btn-primary" style="background:var(--red);color:#fff;" onclick="confirmDelete()">🗑 Delete</button>
-    </div>
+    <div class="m-head"><div class="m-title">🗑 Confirm delete</div><button class="m-close" onclick="closeModal('m-delete')">✕</button></div>
+    <div class="m-body" id="del-body" style="font-size:12.5px;line-height:1.9"></div>
+    <div class="m-foot"><button class="btn" onclick="closeModal('m-delete')">Cancel</button><button class="btn danger" id="del-go">Delete permanently</button></div>
   </div>
 </div>
 
 <!-- Search results -->
-<div class="overlay hidden" id="modal-search">
-  <div class="modal modal-lg">
-    <div class="modal-header">
-      <div class="modal-title" id="search-title">🔍 Search Results</div>
-      <button class="modal-close" onclick="closeModal('modal-search')">✕</button>
-    </div>
-    <div class="modal-body" style="padding:0;" id="search-body"></div>
+<div class="overlay hiddenx" id="m-search">
+  <div class="modal lg">
+    <div class="m-head"><div class="m-title" id="search-title">🔍 Search</div><button class="m-close" onclick="closeModal('m-search')">✕</button></div>
+    <div class="m-body" style="padding:0" id="search-body"></div>
   </div>
 </div>
 
-<!-- Context menu -->
-<div class="ctx-menu hidden" id="ctx-menu"></div>
+<!-- Command palette -->
+<div class="overlay hiddenx" id="m-palette" style="align-items:flex-start;justify-content:center">
+  <div class="palette">
+    <input class="pal-input" id="pal-input" placeholder="Type a command or search this folder…" autocomplete="off">
+    <div class="pal-list" id="pal-list"></div>
+    <div class="pal-foot"><span><span class="kbd">↑↓</span> navigate</span><span><span class="kbd">↵</span> run</span><span><span class="kbd">esc</span> close</span></div>
+  </div>
+</div>
 
-<!-- Toast -->
-<div id="toast"></div>
+<!-- context menu -->
+<div class="ctx hiddenx" id="ctx"></div>
+<!-- toasts -->
+<div id="toasts"></div>
 
 <script>
+'use strict';
 // ============================================================
-//  GLOBALS
+//  CONSTANTS & STATE
 // ============================================================
 const CSRF = <?= json_encode($csrf_token) ?>;
-const SELF = '<?= FM_SELF ?>';
+const SELF = <?= json_encode(FM_SELF) ?>;
+const TERM_OK = <?= FM_TERMINAL ? 'true' : 'false' ?>;
+const ROOT_ABS = <?= json_encode(realpath(FM_ROOT) ?: FM_ROOT) ?>;
+
 let currentPath = '/';
 let currentItems = [];
-let sortColumn = 'name';
-let sortAsc = true;
-let viewMode = 'list'; // list | grid
-let clipboard = null; // {action:'copy'|'move', path}
-let ctxTarget = null;
-let renameTarget = null;
-let chmodTarget = null;
-let copyMoveTarget = null;
-let copyMoveAction = null;
-let deleteTargets = [];
-let termCwd = '<?= addslashes(realpath(FM_ROOT)) ?>';
-let termHistory = [];
-let termHistIdx = -1;
+let itemIndex = new Map();       // path -> item
+let sortCol = 'name', sortAsc = true;
+let viewMode = 'list';
+let filterQ = '';
+let selected = new Set();
+let lastClickIdx = -1;
+let histBack = [], histFwd = [];
+let ctxItem = null;
+let uploadFiles = [];
+let edPath = null, edDirty = false;
+let termCwd = ROOT_ABS, termHist = [], termHistIdx = -1;
+let delTargets = [];
+let cmTargets = [], cmAction = 'copy';
+let palIdx = 0, palMatches = [];
+
+const $ = id => document.getElementById(id);
 
 // ============================================================
-//  INIT
+//  UTILITIES
 // ============================================================
-document.addEventListener('DOMContentLoaded', () => {
-    navTo('/');
-    loadDiskInfo();
-    document.addEventListener('click', (e) => {
-        if (!e.target.closest('#ctx-menu')) hideCtxMenu();
-    });
-    document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') { closeAllModals(); hideCtxMenu(); }
-        if (e.ctrlKey && e.key === 's') { e.preventDefault(); doSave(); }
-        if (e.key === 'F2' && ctxTarget) openRenameModal(ctxTarget.path, ctxTarget.name);
-        if (e.key === 'Delete') deleteSelected();
-    });
-    setupDrop();
-});
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;')}
+function humanSize(b){if(b==null)return '-';const u=['B','KB','MB','GB','TB'];let i=0;while(b>=1024&&i<4){b/=1024;i++}return(Math.round(b*10)/10)+' '+u[i]}
+function fmtDate(ts){if(!ts)return '-';return new Date(ts*1000).toLocaleString([],{year:'numeric',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}
+const IMG_EXT=['jpg','jpeg','png','gif','webp','bmp','ico','svg'];
+const MED_EXT={img:IMG_EXT,vid:['mp4','webm','mov','mkv'],aud:['mp3','wav','ogg','m4a','flac'],pdf:['pdf']};
+function extOf(n){const i=n.lastIndexOf('.');return i<0?'':n.slice(i+1).toLowerCase()}
+function isImg(n){return IMG_EXT.includes(extOf(n))}
 
-// ============================================================
-//  API HELPER
-// ============================================================
-async function api(params, method='GET', body=null) {
-    const url = SELF + '?ajax=1&' + new URLSearchParams(params);
-    const opts = { method };
-    if (body) {
-        body.append('csrf_token', CSRF);
-        opts.body = body;
-    }
-    try {
-        const r = await fetch(url, opts);
-        return await r.json();
-    } catch(e) {
-        return { error: 'Network error: ' + e.message };
-    }
+function fileIcon(it){
+  if(it.is_dir)return '📁';
+  const e=extOf(it.name);
+  const map={php:'🐘',js:'📜',ts:'📘',html:'🌐',htm:'🌐',css:'🎨',scss:'🎨',
+    json:'📋',xml:'📋',yaml:'📋',yml:'📋',md:'📝',txt:'📝',log:'📋',env:'🔑',
+    jpg:'🖼️',jpeg:'🖼️',png:'🖼️',gif:'🖼️',webp:'🖼️',svg:'🖼️',ico:'🖼️',
+    pdf:'📕',zip:'📦',tar:'📦',gz:'📦',rar:'📦',7z:'📦',
+    mp4:'🎬',webm:'🎬',mov:'🎬',mkv:'🎬',mp3:'🎵',wav:'🎵',ogg:'🎵',m4a:'🎵',flac:'🎵',
+    py:'🐍',rb:'💎',go:'🐹',rs:'🦀',java:'☕',c:'⚙️',cpp:'⚙️',sh:'💻',bash:'💻',sql:'🗄️',
+    doc:'📘',docx:'📘',xls:'📊',xlsx:'📊',csv:'📊',ppt:'📙',pptx:'📙'};
+  return map[e]||'📄';
 }
+function serveUrl(path){return SELF+'?ajax=1&action=preview&path='+encodeURIComponent(path)+'&csrf_token='+CSRF}
 
-function apiPost(action, data={}) {
-    const fd = new FormData();
-    Object.entries(data).forEach(([k,v]) => fd.append(k, v));
-    return api({ action }, 'POST', fd);
+async function api(params,method='GET',body=null){
+  const url=SELF+'?ajax=1&'+new URLSearchParams(params);
+  const opts={method};
+  if(body){body.append('csrf_token',CSRF);opts.body=body}
+  try{const r=await fetch(url,opts);return await r.json()}
+  catch(e){return{error:'Network error: '+e.message}}
 }
+function apiPost(action,data={}){const fd=new FormData();Object.entries(data).forEach(([k,v])=>fd.append(k,v));return api({action},'POST',fd)}
+
+function toast(msg,type='info'){
+  const t=document.createElement('div');t.className='toast '+type;
+  t.innerHTML=`<span>${type==='ok'?'✅':type==='err'?'⛔':'💡'}</span><span>${esc(msg)}</span>`;
+  $('toasts').appendChild(t);
+  setTimeout(()=>{t.classList.add('out');setTimeout(()=>t.remove(),350)},3200);
+}
+let stTimer;
+function flashStatus(msg,err=false){
+  const el=$('status-msg');el.textContent=msg;el.className=err?'err':'';
+  clearTimeout(stTimer);if(msg)stTimer=setTimeout(()=>el.textContent='',2600);
+}
+function openModal(id){$(id).classList.remove('hiddenx')}
+function closeModal(id){$(id).classList.add('hiddenx')}
+function closeAllModals(){document.querySelectorAll('.overlay').forEach(o=>o.classList.add('hiddenx'));hideCtx()}
+document.addEventListener('click',e=>{if(e.target.classList&&e.target.classList.contains('overlay'))closeAllModals()});
+
+// ============================================================
+//  THEME
+// ============================================================
+function applyThemeBtn(){const d=document.documentElement.dataset.theme==='light';$('btn-theme').textContent=d?'☀️':'🌙'}
+function toggleTheme(){
+  const next=document.documentElement.dataset.theme==='light'?'dark':'light';
+  document.documentElement.dataset.theme=next;
+  try{localStorage.setItem('fm_theme',next)}catch(e){}
+  applyThemeBtn();
+}
+applyThemeBtn();
 
 // ============================================================
 //  NAVIGATION
 // ============================================================
-async function navTo(path) {
-    currentPath = path;
-    showStatus('Loading…');
-    const data = await api({ action:'ls', path });
-    if (data.error) { showToast(data.error, 'err'); return; }
-    currentItems = data.items || [];
-    renderBreadcrumb(data.crumbs || []);
+async function navTo(path,push=true){
+  if(push&&path!==currentPath){histBack.push(currentPath);histFwd=[]}
+  currentPath=path;
+  updateNavBtns();showSkeleton(true);
+  const t0=Date.now();
+  const data=await api({action:'ls',path});
+  const wait=Math.max(0,260-(Date.now()-t0)); // avoid skeleton flicker
+  setTimeout(()=>{
+    showSkeleton(false);
+    if(data.error){toast(data.error,'err');showSkeleton(false);renderEmpty();return}
+    currentItems=data.items||[];
+    buildIndex();selected.clear();updateSelUI();
+    renderCrumbs(data.crumbs||[]);renderFiles();loadDiskInfo();
+  },wait);
+}
+function refreshDir(){navTo(currentPath,false)}
+function goBack(){if(!histBack.length)return;histFwd.push(currentPath);navTo(histBack.pop(),false)}
+function goForward(){if(!histFwd.length)return;histBack.push(currentPath);navTo(histFwd.pop(),false)}
+function updateNavBtns(){$('btn-back').disabled=!histBack.length;$('btn-fwd').disabled=!histFwd.length}
+
+function renderCrumbs(crumbs){
+  $('crumbs').innerHTML=crumbs.map((c,i)=>{
+    const last=i===crumbs.length-1;
+    return (i>0?'<span class="crumb-sep">/</span>':'')
+      +`<span class="crumb${last?' last':''}" data-nav="${esc(c.path)}">${esc(c.name)}</span>`;
+  }).join('');
+  const w=document.querySelector('.crumbwrap');w.scrollLeft=w.scrollWidth;
+}
+function buildIndex(){itemIndex=new Map(currentItems.map(i=>[i.path,i]))}
+
+function showSkeleton(on){
+  const sk=$('skeleton');
+  if(!on){sk.classList.add('hiddenx');return}
+  sk.classList.remove('hiddenx');
+  sk.innerHTML=Array.from({length:8},()=>'<div class="skl-row">'+
+    '<div></div><div class="skl-bar" style="width:70%"></div><div class="skl-bar" style="width:80%"></div>'+
+    '<div class="skl-bar" style="width:90%"></div><div class="skl-bar" style="width:60%"></div><div></div></div>').join('');
+  $('file-list').innerHTML='';$('grid-view').innerHTML='';$('empty-slot').innerHTML='';
+}
+
+// ============================================================
+//  FILTER / SORT / RENDER
+// ============================================================
+function clearFilter(){filterQ='';$('filter-input').value='';$('filter-box').classList.remove('has-q');renderFiles()}
+$('filter-input').addEventListener('input',e=>{filterQ=e.target.value.trim().toLowerCase();$('filter-box').classList.toggle('has-q',!!filterQ);renderFiles()});
+
+function filteredSorted(){
+  let arr=currentItems.filter(i=>!filterQ||i.name.toLowerCase().includes(filterQ));
+  arr.sort((a,b)=>{
+    if(a.is_dir!==b.is_dir)return b.is_dir-a.is_dir;
+    let va=a[sortCol],vb=b[sortCol];
+    if(typeof va==='string'){va=va.toLowerCase();vb=vb.toLowerCase()}
+    const r=va<vb?-1:va>vb?1:0;
+    return sortAsc?r:-r;
+  });
+  return arr;
+}
+
+function renderFiles(){
+  const arr=filteredSorted();
+  renderSortHead();
+  $('st-count').textContent=currentItems.length+' items'+(filterQ?` (${arr.length} match)`:'');
+  if(viewMode==='grid'){
+    $('list-head').style.display='none';$('file-list').innerHTML='';
+    const gv=$('grid-view');gv.classList.remove('hiddenx');
+    if(arr.length)gv.innerHTML=arr.map((it,idx)=>gcardHTML(it,idx)).join('');
+    else if(currentItems.length)gv.innerHTML='<div class="empty-state" style="grid-column:1/-1;padding:40px"><span class="big">🔎</span><h3>No matches</h3><p>Nothing matches your filter.</p></div>';
+    if(!currentItems.length)renderEmpty();else $('empty-slot').innerHTML='';
+    return;
+  }
+  $('grid-view').classList.add('hiddenx');
+  $('list-head').style.display='';
+  const fl=$('file-list');
+  if(!arr.length&&!currentItems.length){fl.innerHTML='';renderEmpty();return}
+  $('empty-slot').innerHTML='';
+  fl.innerHTML=arr.length?arr.map((it,idx)=>rowHTML(it,idx)).join('')
+    :`<div class="empty-state" style="padding:40px"><span class="big">🔎</span><h3>No matches</h3><p>Nothing here matches your filter.</p></div>`;
+}
+
+function rowHTML(it,idx){
+  const sel=selected.has(it.path)?' sel':'';
+  return `<div class="frow${sel}" data-path="${esc(it.path)}" data-idx="${idx}">
+    <div class="chk"><input type="checkbox" ${sel?'checked':''} data-check="${esc(it.path)}"></div>
+    <div class="fic">${fileIcon(it)}</div>
+    <div class="fname ${it.is_dir?'dir-name':''}"><span class="nm">${esc(it.name)}</span>${it.writable?'':'<span class="lock" title="Read-only">🔒</span>'}</div>
+    <div class="fsize">${it.is_dir?'—':humanSize(it.size)}</div>
+    <div class="fdate">${fmtDate(it.mtime)}</div>
+    <div class="fperm">${esc(it.perms||'')}</div>
+    <button class="fmore" data-more="${esc(it.path)}" aria-label="Actions">⋯</button>
+  </div>`;
+}
+function gcardHTML(it,idx){
+  const sel=selected.has(it.path)?' sel':'';
+  const thumb=isImg(it.name)?`<img class="thumb" loading="lazy" src="${serveUrl(it.path)}" alt="">`
+    :`<div class="gi">${fileIcon(it)}</div>`;
+  return `<div class="gcard${sel}" data-path="${esc(it.path)}" data-idx="${idx}">
+    <div class="chk"><input type="checkbox" ${sel?'checked':''} data-check="${esc(it.path)}"></div>
+    ${thumb}<div class="gn" title="${esc(it.name)}">${esc(it.name)}</div>
+  </div>`;
+}
+function renderEmpty(){
+  $('empty-slot').innerHTML=`<div class="empty-state">
+    <span class="big">🗂️</span><h3>This folder is empty</h3>
+    <p>Drop files anywhere on this page to upload, or create something new.</p>
+    <div style="display:flex;gap:8px">
+      <button class="btn primary" onclick="openUploadModal()">⬆ Upload</button>
+      <button class="btn" onclick="openNewFileModal()">📄 New file</button>
+    </div></div>`;
+}
+
+/* sorting UI */
+function renderSortHead(){
+  document.querySelectorAll('#list-head .sortable').forEach(el=>{
+    el.classList.toggle('on',el.dataset.sort===sortCol);
+    el.querySelector('.arrow').textContent=el.dataset.sort===sortCol?(sortAsc?'↑':'↓'):'';
+  });
+}
+document.querySelectorAll('#list-head .sortable').forEach(el=>{
+  el.addEventListener('click',()=>{
+    const c=el.dataset.sort;
+    if(sortCol===c)sortAsc=!sortAsc;else{sortCol=c;sortAsc=true}
     renderFiles();
-    clearStatus();
-    loadDiskInfo();
-}
+  });
+});
 
-function refreshDir() { navTo(currentPath); }
+/* sort dropdown */
+const SORTS=[['name','Name'],['size','Size'],['mtime','Modified']];
+$('btn-sort').addEventListener('click',e=>{
+  e.stopPropagation();
+  const pop=$('sort-pop');
+  pop.innerHTML=SORTS.map(([k,l])=>`<button class="pop-item${sortCol===k?' on':''}" data-sort="${k}">${sortAsc?'↑':'↓'} ${l}</button>`).join('')
+    +'<div class="pop-sep"></div>'
+    +`<button class="pop-item${sortAsc?' on':''}" data-dir="asc">Ascending</button>`
+    +`<button class="pop-item${!sortAsc?' on':''}" data-dir="desc">Descending</button>`;
+  pop.classList.toggle('hiddenx');
+});
+$('sort-pop').addEventListener('click',e=>{
+  const b=e.target.closest('[data-sort],[data-dir]');if(!b)return;
+  if(b.dataset.sort)sortCol=b.dataset.sort;else sortAsc=b.dataset.dir==='asc';
+  $('sort-pop').classList.add('hiddenx');renderFiles();
+});
+document.addEventListener('click',e=>{if(!e.target.closest('.sort-wrap'))$('sort-pop').classList.add('hiddenx')});
 
-function renderBreadcrumb(crumbs) {
-    const el = document.getElementById('breadcrumb');
-    el.innerHTML = crumbs.map((c, i) => {
-        const isLast = i === crumbs.length - 1;
-        const cls = isLast ? 'breadcrumb-item last' : 'breadcrumb-item';
-        const onclick = isLast ? '' : `onclick="navTo('${esc(c.path)}')"`;
-        return (i > 0 ? '<span class="breadcrumb-sep">/</span>' : '')
-             + `<span class="${cls}" ${onclick}>${esc(c.name)}</span>`;
-    }).join('');
-}
-
-// ============================================================
-//  FILE RENDERING
-// ============================================================
-function fileIcon(item) {
-    if (item.is_dir) return '📁';
-    const ext = item.name.split('.').pop().toLowerCase();
-    const map = {
-        php:'🐘',js:'📜',ts:'📘',html:'🌐',htm:'🌐',css:'🎨',
-        json:'📋',xml:'📋',yaml:'📋',yml:'📋',
-        md:'📝',txt:'📝',log:'📋',
-        jpg:'🖼',jpeg:'🖼',png:'🖼',gif:'🖼',webp:'🖼',svg:'🖼',ico:'🖼',
-        pdf:'📑',zip:'📦',tar:'📦',gz:'📦',rar:'📦',
-        mp4:'🎬',webm:'🎬',mov:'🎬',
-        mp3:'🎵',wav:'🎵',ogg:'🎵',
-        py:'🐍',rb:'💎',go:'🐹',c:'⚙',cpp:'⚙',java:'☕',rs:'🦀',
-        sh:'💻',bash:'💻',sql:'🗄',
-    };
-    return map[ext] || '📄';
-}
-
-function formatDate(ts) {
-    if (!ts) return '-';
-    const d = new Date(ts * 1000);
-    return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
-}
-
-function renderFiles() {
-    const sorted = [...currentItems].sort((a, b) => {
-        if (a.is_dir !== b.is_dir) return b.is_dir - a.is_dir;
-        let va = a[sortColumn], vb = b[sortColumn];
-        if (typeof va === 'string') va = va.toLowerCase();
-        if (typeof vb === 'string') vb = vb.toLowerCase();
-        return sortAsc ? (va > vb ? 1 : -1) : (va < vb ? 1 : -1);
-    });
-
-    if (viewMode === 'grid') {
-        renderGrid(sorted);
-        return;
-    }
-
-    const tbody = document.getElementById('file-tbody');
-    if (sorted.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="6"><div class="empty-state"><span class="icon">📂</span><span>Empty directory</span></div></td></tr>`;
-        document.getElementById('status-count').textContent = '0 items';
-        return;
-    }
-
-    tbody.innerHTML = sorted.map(item => {
-        const perms = colorPerms(item.perms);
-        return `<tr data-path="${esc(item.path)}" data-name="${esc(item.name)}" data-isdir="${item.is_dir?1:0}"
-            onclick="handleRowClick(event, '${esc(item.path)}', ${item.is_dir?1:0}, '${esc(item.name)}')"
-            ondblclick="handleDblClick('${esc(item.path)}', ${item.is_dir?1:0})"
-            oncontextmenu="showCtxMenu(event, '${esc(item.path)}', '${esc(item.name)}', ${item.is_dir?1:0})">
-          <td class="col-check"><input type="checkbox" class="check row-check" data-path="${esc(item.path)}" onclick="e=>e.stopPropagation()"></td>
-          <td>
-            <div class="file-name">
-              <span class="file-icon${item.is_dir?' dir-icon':''}">${fileIcon(item)}</span>
-              <span>${esc(item.name)}</span>
-            </div>
-          </td>
-          <td class="file-size">${item.is_dir ? '—' : humanSize(item.size)}</td>
-          <td class="file-date">${formatDate(item.mtime)}</td>
-          <td class="file-perms">${perms}</td>
-          <td>
-            <div style="display:flex;gap:4px;">
-              ${item.is_dir
-                ? `<button class="btn sm" onclick="event.stopPropagation();navTo('${esc(item.path)}')">Open</button>`
-                : `<button class="btn sm" onclick="event.stopPropagation();openFile('${esc(item.path)}','${esc(item.name)}')">View</button>
-                   <button class="btn sm" onclick="event.stopPropagation();downloadFile('${esc(item.path)}')">⬇</button>`
-              }
-              <button class="btn sm danger" onclick="event.stopPropagation();promptDelete(['${esc(item.path)}'])">✕</button>
-            </div>
-          </td>
-        </tr>`;
-    }).join('');
-
-    document.getElementById('status-count').textContent = sorted.length + ' items';
-    document.getElementById('file-table').classList.remove('hidden');
-    document.getElementById('grid-view').classList.add('hidden');
-}
-
-function renderGrid(items) {
-    document.getElementById('file-table').classList.add('hidden');
-    const gv = document.getElementById('grid-view');
-    gv.classList.remove('hidden');
-    gv.innerHTML = items.map(item => `
-        <div class="grid-item" data-path="${esc(item.path)}"
-            ondblclick="handleDblClick('${esc(item.path)}', ${item.is_dir?1:0})"
-            oncontextmenu="showCtxMenu(event,'${esc(item.path)}','${esc(item.name)}',${item.is_dir?1:0})">
-          <div class="grid-icon">${fileIcon(item)}</div>
-          <div class="grid-name">${esc(item.name)}</div>
-        </div>`).join('');
-    document.getElementById('status-count').textContent = items.length + ' items';
-}
-
-function colorPerms(perms) {
-    if (!perms) return '-';
-    return `<span style="font-family:var(--mono);font-size:11px;">${perms}</span>`;
+function toggleView(){
+  viewMode=viewMode==='list'?'grid':'list';
+  $('btn-view').textContent=viewMode==='grid'?'☰':'▦';
+  renderFiles();
 }
 
 // ============================================================
-//  ROW INTERACTIONS
+//  SELECTION
 // ============================================================
-function handleRowClick(e, path, isDir, name) {
-    if (e.target.type === 'checkbox') return;
-    // Ctrl+click = select
-    if (e.ctrlKey) {
-        const row = e.currentTarget;
-        const cb = row.querySelector('.row-check');
-        if (cb) { cb.checked = !cb.checked; updateSelCount(); }
-        return;
-    }
-    ctxTarget = { path, name, isDir: !!isDir };
+function toggleSelect(path){
+  selected.has(path)?selected.delete(path):selected.add(path);
+  syncRowChecks();updateSelUI();
 }
+function selectRange(fromIdx,toIdx){
+  const arr=filteredSorted();
+  const [a,b]=[Math.min(fromIdx,toIdx),Math.max(fromIdx,toIdx)];
+  for(let i=a;i<=b;i++)if(arr[i])selected.add(arr[i].path);
+  syncRowChecks();updateSelUI();
+}
+function selectAll(){
+  filteredSorted().forEach(i=>selected.add(i.path));
+  syncRowChecks();updateSelUI();
+}
+function clearSelection(){selected.clear();syncRowChecks();updateSelUI()}
+function syncRowChecks(){
+  document.querySelectorAll('[data-check]').forEach(cb=>{
+    cb.checked=selected.has(cb.dataset.check);
+    cb.closest('.frow,.gcard')?.classList.toggle('sel',cb.checked);
+  });
+  $('check-all').checked=currentItems.length>0&&filteredSorted().every(i=>selected.has(i.path));
+}
+function getSelectedPaths(){return [...selected]}
+function updateSelUI(){
+  const n=selected.size;
+  $('st-sel').textContent=n?n+' selected':'';
+  $('bulk-count').textContent=n+' selected';
+  $('bulkbar').classList.toggle('show',n>0);
+}
+$('check-all').addEventListener('change',e=>{e.target.checked?selectAll():clearSelection()});
 
-function handleDblClick(path, isDir) {
-    if (isDir) navTo(path);
-    else openFile(path, path.split('/').pop());
-}
+/* row interactions (event delegation — quote-safe with any filename) */
+$('file-list').addEventListener('click',e=>{
+  const more=e.target.closest('.fmore');
+  const cb=e.target.closest('input[data-check]');
+  if(e.target.closest('.chk')&&!cb)return;
+  const row=e.target.closest('.frow');if(!row)return;
+  const it=itemIndex.get(row.dataset.path);if(!it)return;
+  if(more){e.stopPropagation();openCtxAt(more.getBoundingClientRect(),it);return}
+  if(cb){e.stopPropagation();toggleSelect(it.path);lastClickIdx=+row.dataset.idx;return}
+  if(e.ctrlKey||e.metaKey){toggleSelect(it.path);lastClickIdx=+row.dataset.idx;return}
+  if(e.shiftKey&&lastClickIdx>=0){selectRange(lastClickIdx,+row.dataset.idx);return}
+  lastClickIdx=+row.dataset.idx;
+  openItem(it);
+});
+$('grid-view').addEventListener('click',e=>{
+  if(e.target.closest('.chk')&&!e.target.closest('input[data-check]'))return;
+  const cb=e.target.closest('input[data-check]');
+  const card=e.target.closest('.gcard');if(!card)return;
+  const it=itemIndex.get(card.dataset.path);if(!it)return;
+  if(cb){e.stopPropagation();toggleSelect(it.path);return}
+  openItem(it);
+});
 
-function updateSelCount() {
-    const sel = document.querySelectorAll('.row-check:checked').length;
-    document.getElementById('status-sel').textContent = sel + ' selected';
-}
+/* long-press = context menu on touch devices */
+let lpTimer=null,lpStart=null;
+$('file-area').addEventListener('touchstart',e=>{
+  const row=e.target.closest('.frow,.gcard');if(!row)return;
+  lpStart={x:e.touches[0].clientX,y:e.touches[0].clientY};
+  lpTimer=setTimeout(()=>{
+    const it=itemIndex.get(row.dataset.path);
+    if(it){navigator.vibrate?.(30);openCtxAt(lpStart,it,true)}
+  },480);
+},{passive:true});
+['touchend','touchmove'].forEach(ev=>$('file-area').addEventListener(ev,()=>clearTimeout(lpTimer),{passive:true}));
 
-function toggleCheckAll(cb) {
-    document.querySelectorAll('.row-check').forEach(c => c.checked = cb.checked);
-    updateSelCount();
-}
-
-function getSelectedPaths() {
-    return Array.from(document.querySelectorAll('.row-check:checked')).map(c => c.dataset.path);
-}
+/* right-click context menu */
+$('file-area').addEventListener('contextmenu',e=>{
+  e.preventDefault();
+  const row=e.target.closest('.frow,.gcard');if(!row)return;
+  const it=itemIndex.get(row.dataset.path);if(it)openCtxAt(e,it);
+});
 
 // ============================================================
-//  FILE OPERATIONS
+//  OPEN ITEMS (edit / preview / navigate)
 // ============================================================
-async function openFile(path, name) {
-    const ext = name.split('.').pop().toLowerCase();
-    const imgExts = ['jpg','jpeg','png','gif','webp','bmp','ico'];
-    if (imgExts.includes(ext)) {
-        openImagePreview(path, name); return;
-    }
-    showStatus('Loading…');
-    const data = await api({ action:'read', path });
-    clearStatus();
-    if (data.error) { showToast(data.error,'err'); return; }
-    document.getElementById('editor-textarea').value = data.content;
-    document.getElementById('editor-title').textContent = '✏ ' + name;
-    document.getElementById('editor-info').textContent = path;
-    document.getElementById('editor-textarea').dataset.path = path;
-    openModal('modal-editor');
+function openItem(it){
+  if(it.is_dir)return navTo(it.path);
+  if(isImg(it.name)||MED_EXT.vid.includes(extOf(it.name))||MED_EXT.aud.includes(extOf(it.name))||extOf(it.name)==='pdf')
+    return openPreview(it);
+  openEditor(it.path,it.name);
 }
 
-function openImagePreview(path, name) {
-    document.getElementById('preview-title').textContent = '🖼 ' + name;
-    document.getElementById('preview-img').src = SELF + '?ajax=1&action=preview&path=' + encodeURIComponent(path) + '&csrf_token=' + CSRF;
-    document.getElementById('preview-dl-btn').onclick = () => downloadFile(path);
-    openModal('modal-preview');
+/* editor */
+async function openEditor(path,name){
+  showStatusLoading('Opening…');
+  const d=await api({action:'read',path});
+  flashStatus('');
+  if(d.error)return toast(d.error,'err');
+  edPath=path;edDirty=false;$('ed-host').classList.remove('dirty');
+  $('ed-ta').value=d.content;
+  $('ed-title').firstChild.textContent='✏ '+name;
+  $('ed-info').textContent=path;
+  updateGutter();updateCaretPos();
+  openModal('m-editor');
+}
+function closeEditor(){
+  if(edDirty&&!confirm('Discard unsaved changes?'))return;
+  edDirty=false;edPath=null;closeModal('m-editor');
+}
+function updateGutter(){
+  const n=$('ed-ta').value.split('\n').length;
+  $('ed-gutter').textContent=Array.from({length:n},(_,i)=>i+1).join('\n');
+}
+function updateCaretPos(){
+  const ta=$('ed-ta'),pos=ta.selectionStart,before=ta.value.slice(0,pos);
+  const line=before.split('\n').length,col=pos-before.lastIndexOf('\n');
+  $('ed-pos').textContent=`Ln ${line}, Col ${col}`;
+}
+['keyup','click','input'].forEach(ev=>$('ed-ta').addEventListener(ev,e=>{
+  if(ev==='input'){edDirty=true;$('ed-host').classList.add('dirty');updateGutter()}
+  updateCaretPos();
+}));
+$('ed-ta').addEventListener('scroll',()=>{$('ed-gutter').scrollTop=$('ed-ta').scrollTop});
+$('ed-ta').addEventListener('keydown',e=>{
+  if(e.key==='Tab'){e.preventDefault();const ta=e.target,s=ta.selectionStart,en=ta.selectionEnd;
+    ta.value=ta.value.slice(0,s)+'    '+ta.value.slice(en);ta.selectionStart=ta.selectionEnd=s+4;
+    edDirty=true;$('ed-host').classList.add('dirty')}
+});
+async function doSave(){
+  if(!edPath)return;
+  const btn=$('m-editor').querySelector('.m-foot .primary');btn.disabled=true;
+  const d=await apiPost('save',{path:edPath,content:$('ed-ta').value});
+  btn.disabled=false;
+  if(d.ok){edDirty=false;$('ed-host').classList.remove('dirty');toast('Saved ✓','ok')}
+  else toast(d.error||'Save failed','err');
 }
 
-async function doSave() {
-    const ta = document.getElementById('editor-textarea');
-    const path = ta.dataset.path;
-    if (!path) return;
-    const data = await apiPost('save', { path, content: ta.value });
-    if (data.ok) { showToast('Saved ✓', 'ok'); }
-    else showToast(data.error || 'Save failed', 'err');
+/* media preview */
+function openPreview(it){
+  const ext=extOf(it.name),url=serveUrl(it.path),body=$('pv-body');
+  let html='';
+  if(MED_EXT.img.includes(ext))html=`<img src="${url}" alt="">`;
+  else if(MED_EXT.vid.includes(ext))html=`<video src="${url}" controls autoplay playsinline></video>`;
+  else if(MED_EXT.aud.includes(ext))html=`<audio src="${url}" controls autoplay></audio>`;
+  else html=`<iframe src="${url}" title="preview"></iframe>`;
+  body.innerHTML=html;
+  $('pv-title').innerHTML=`${fileIcon(it)} ${esc(it.name)}<small>${humanSize(it.size)}</small>`;
+  $('pv-dl').onclick=()=>downloadFile(it.path);
+  openModal('m-preview');
 }
 
-function downloadFile(path) {
-    window.location.href = SELF + '?ajax=1&action=download&path=' + encodeURIComponent(path) + '&csrf_token=' + CSRF;
+function downloadFile(path){
+  window.location.href=SELF+'?ajax=1&action=download&path='+encodeURIComponent(path)+'&csrf_token='+CSRF;
 }
+function showStatusLoading(m){flashStatus(m)}
 
 // ============================================================
 //  MKDIR / NEW FILE
 // ============================================================
-function openMkdirModal() {
-    document.getElementById('mkdir-name').value = '';
-    openModal('modal-mkdir');
-    setTimeout(() => document.getElementById('mkdir-name').focus(), 100);
+function openMkdirModal(){openModal('m-mkdir');setTimeout(()=>$('mkdir-name').focus(),80)}
+async function doMkdir(){
+  const name=$('mkdir-name').value.trim();if(!name)return;
+  const d=await apiPost('mkdir',{path:currentPath,name});
+  closeModal('m-mkdir');
+  if(d.ok){toast('Folder created ✓','ok');refreshDir()}else toast(d.error,'err');
 }
-
-async function doMkdir() {
-    const name = document.getElementById('mkdir-name').value.trim();
-    if (!name) return;
-    const data = await apiPost('mkdir', { path: currentPath, name });
-    closeModal('modal-mkdir');
-    if (data.ok) { showToast('Folder created', 'ok'); refreshDir(); }
-    else showToast(data.error, 'err');
-}
-
-function openNewFileModal() {
-    document.getElementById('newfile-name').value = '';
-    openModal('modal-newfile');
-    setTimeout(() => document.getElementById('newfile-name').focus(), 100);
-}
-
-async function doNewFile() {
-    const name = document.getElementById('newfile-name').value.trim();
-    if (!name) return;
-    const path = (currentPath.replace(/\/+$/,'') + '/' + name);
-    // Create by saving empty content
-    const data = await apiPost('save', { path, content: '' });
-    // Actually: create via mkdir fallback — we need a create endpoint
-    // Use the save route; backend needs the file to exist first.
-    // Use mkdir + rename trick: write to existing via save.
-    // Simpler: POST to a 'touch' action (mapped to save with empty content on new file)
-    // Our save() requires file_exists. Let's use fetch to save empty.
-    // Use a different approach: create via terminal or provide createfile action.
-    // We'll handle by checking if save failed (file not found) then do touch.
-    if (data.error && data.error.includes('not found')) {
-        // touch via terminal if available
-        const t = await apiPost('terminal', { cmd: 'touch ' + shellescape(path), cwd: termCwd });
-        const d2 = await apiPost('save', { path, content: '' });
-        if (!d2.ok) { showToast('Could not create file: ' + (d2.error||''), 'err'); return; }
-    }
-    closeModal('modal-newfile');
-    // Open editor right away
-    document.getElementById('editor-textarea').value = '';
-    document.getElementById('editor-title').textContent = '✏ ' + name;
-    document.getElementById('editor-textarea').dataset.path = path;
-    document.getElementById('editor-info').textContent = path;
-    refreshDir();
-    openModal('modal-editor');
-}
-
-function shellescape(s) {
-    return "'" + s.replace(/'/g, "'\\''") + "'";
+function openNewFileModal(){openModal('m-newfile');setTimeout(()=>$('newfile-name').focus(),80)}
+async function doNewFile(){
+  const name=$('newfile-name').value.trim();if(!name)return;
+  const path=(currentPath==='/'?'':currentPath)+'/'+name;
+  const d=await apiPost('touch',{path});
+  closeModal('m-newfile');
+  if(!d.ok)return toast(d.error||'Create failed','err');
+  refreshDir();
+  $('ed-ta').value='';edDirty=false;edPath=path;
+  $('ed-title').firstChild.textContent='✏ '+name;
+  $('ed-info').textContent=path;$('ed-host').classList.remove('dirty');
+  updateGutter();openModal('m-editor');
 }
 
 // ============================================================
-//  UPLOAD
+//  UPLOAD (with progress)
 // ============================================================
-let uploadFiles = [];
-
-function openUploadModal() {
-    uploadFiles = [];
-    document.getElementById('upload-list').innerHTML = '';
-    openModal('modal-upload');
+function openUploadModal(preset=null){
+  uploadFiles=preset?[...preset]:[];
+  $('upl-list').innerHTML='';$('upl-progress').classList.add('hiddenx');setBar(0);
+  renderUplList();openModal('m-upload');
+}
+function renderUplList(){
+  $('upl-list').innerHTML=uploadFiles.map(f=>`<div class="pline"><span>${esc(f.name)}</span><span>${humanSize(f.size)}</span></div>`).join('');
+}
+$('dz').addEventListener('click',()=>$('file-input').click());
+$('file-input').addEventListener('change',e=>{uploadFiles=[...uploadFiles,...e.target.files];renderUplList()});
+['dragover','dragleave','drop'].forEach(ev=>$('dz').addEventListener(ev,e=>{
+  e.preventDefault();
+  if(ev==='dragover')$('dz').classList.add('over');
+  else $('dz').classList.remove('over');
+  if(ev==='drop'&&e.dataTransfer.files.length){uploadFiles=[...uploadFiles,...e.dataTransfer.files];renderUplList()}
+}));
+function setBar(f){$('upl-bar').style.width=Math.round(f*100)+'%';$('upl-pct').textContent=Math.round(f*100)+'%'}
+function doUpload(){
+  if(!uploadFiles.length)return toast('No files chosen','err');
+  $('btn-upload').disabled=true;$('upl-progress').classList.remove('hiddenx');
+  const fd=new FormData();fd.append('csrf_token',CSRF);fd.append('path',currentPath);
+  uploadFiles.forEach(f=>fd.append('files[]',f));
+  const xhr=new XMLHttpRequest();
+  xhr.open('POST',SELF+'?ajax=1&action=upload');
+  xhr.upload.onprogress=e=>{if(e.lengthComputable)setBar(e.loaded/e.total)};
+  xhr.onload=()=>{
+    $('btn-upload').disabled=false;setBar(1);$('upl-label').textContent='Done';
+    try{
+      const d=JSON.parse(xhr.responseText);
+      $('upl-list').innerHTML=(d.results||[]).map(r=>
+        `<div class="pline"><span>${esc(r.name)}</span><span class="${r.ok?'ok':'fail'}">${r.ok?'✓ uploaded':'✗ '+(r.msg||'failed')}</span></div>`).join('');
+      const okN=(d.results||[]).filter(r=>r.ok).length;
+      if(okN)toast(`${okN} file${okN>1?'s':''} uploaded ✓`,'ok');
+      if(d.error)toast(d.error,'err');
+      refreshDir();
+    }catch(e){toast('Upload parse error','err')}
+    uploadFiles=[];
+  };
+  xhr.onerror=()=>{$('btn-upload').disabled=false;toast('Upload network error','err')};
+  $('upl-label').textContent='Uploading '+uploadFiles.length+' file(s)…';
+  xhr.send(fd);
 }
 
-function handleFileSelect(files) {
-    uploadFiles = Array.from(files);
-    const list = document.getElementById('upload-list');
-    list.innerHTML = uploadFiles.map(f =>
-        `<div class="upload-item"><span>${esc(f.name)}</span><span>${humanSize(f.size)}</span></div>`
-    ).join('');
-}
-
-function setupDrop() {
-    const dz = document.getElementById('drop-zone');
-    if (!dz) return;
-    dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag-over'); });
-    dz.addEventListener('dragleave', () => dz.classList.remove('drag-over'));
-    dz.addEventListener('drop', e => {
-        e.preventDefault();
-        dz.classList.remove('drag-over');
-        handleFileSelect(e.dataTransfer.files);
-    });
-}
-
-async function doUpload() {
-    if (!uploadFiles.length) { showToast('No files selected','err'); return; }
-    const btn = document.getElementById('upload-btn');
-    btn.innerHTML = '<span class="spin"></span> Uploading…';
-    btn.disabled = true;
-    const fd = new FormData();
-    fd.append('csrf_token', CSRF);
-    fd.append('path', currentPath);
-    uploadFiles.forEach(f => fd.append('files[]', f));
-    const list = document.getElementById('upload-list');
-    try {
-        const r = await fetch(SELF + '?ajax=1&action=upload', { method:'POST', body: fd });
-        const data = await r.json();
-        list.innerHTML = (data.results || []).map(r =>
-            `<div class="upload-item">
-              <span>${esc(r.name)}</span>
-              <span class="${r.ok?'ok':'fail'}">${r.ok?'✓':'✗ '+r.msg}</span>
-            </div>`).join('');
-        refreshDir();
-    } catch(e) {
-        showToast('Upload error: '+e.message,'err');
-    }
-    btn.innerHTML = 'Upload';
-    btn.disabled = false;
-    uploadFiles = [];
-}
-
-// ============================================================
-//  RENAME
-// ============================================================
-function openRenameModal(path, name) {
-    renameTarget = path;
-    document.getElementById('rename-input').value = name;
-    openModal('modal-rename');
-    setTimeout(() => {
-        const inp = document.getElementById('rename-input');
-        inp.focus();
-        const dot = name.lastIndexOf('.');
-        inp.setSelectionRange(0, dot > 0 ? dot : name.length);
-    }, 100);
-}
-
-async function doRename() {
-    const newname = document.getElementById('rename-input').value.trim();
-    if (!newname || !renameTarget) return;
-    const data = await apiPost('rename', { path: renameTarget, newname });
-    closeModal('modal-rename');
-    if (data.ok) { showToast('Renamed ✓','ok'); refreshDir(); }
-    else showToast(data.error,'err');
-}
+/* whole-page drop → instant upload */
+let dragDepth=0;
+document.addEventListener('dragenter',e=>{
+  if(e.dataTransfer&&[...e.dataTransfer.types].includes('Files')){
+    dragDepth++;$('drop-overlay').classList.add('show');
+  }
+});
+document.addEventListener('dragleave',()=>{if(--dragDepth<=0){dragDepth=0;$('drop-overlay').classList.remove('show')}});
+document.addEventListener('dragover',e=>e.preventDefault());
+document.addEventListener('drop',e=>{
+  e.preventDefault();dragDepth=0;$('drop-overlay').classList.remove('show');
+  if(e.dataTransfer&&e.dataTransfer.files.length){
+    openUploadModal(e.dataTransfer.files);
+    doUpload();
+  }
+});
 
 // ============================================================
-//  DELETE
+//  RENAME / DELETE / CHMOD
 // ============================================================
-function promptDelete(paths) {
-    deleteTargets = paths;
-    document.getElementById('delete-body').innerHTML =
-        `<p style="color:var(--red);margin-bottom:10px;">⚠ This action is <strong>permanent</strong> and cannot be undone.</p>`
-      + paths.map(p => `<div>• ${esc(p)}</div>`).join('');
-    openModal('modal-delete');
+let renameTarget=null;
+function openRename(item){
+  renameTarget=item.path;
+  $('rename-old').textContent=item.path;
+  $('rename-input').value=item.name;
+  openModal('m-rename');setTimeout(()=>{
+    const inp=$('rename-input');inp.focus();
+    const dot=item.name.lastIndexOf('.');
+    inp.setSelectionRange(0,dot>0?dot:item.name.length);
+  },80);
+}
+async function doRename(){
+  const nn=$('rename-input').value.trim();if(!nn||!renameTarget)return;
+  const d=await apiPost('rename',{path:renameTarget,newname:nn});
+  closeModal('m-rename');
+  if(d.ok){toast('Renamed ✓','ok');refreshDir()}else toast(d.error,'err');
 }
 
-function deleteSelected() {
-    const paths = getSelectedPaths();
-    if (!paths.length) { showToast('Nothing selected','err'); return; }
-    promptDelete(paths);
+function promptDelete(paths){
+  delTargets=paths;
+  $('del-body').innerHTML=`<p style="color:var(--red);margin-bottom:10px">⚠ This is <b>permanent</b> — no recycle bin.</p>`
+    +paths.map(p=>`<div style="font-family:var(--mono);font-size:11.5px">• ${esc(p)}</div>`).join('');
+  openModal('m-delete');
+}
+$('del-go').addEventListener('click',async()=>{
+  closeModal('m-delete');
+  let ok=0,fail=0;
+  for(const p of delTargets){const d=await apiPost('delete',{path:p});d.ok?ok++:fail++}
+  toast(`Deleted ${ok}${fail?' · '+fail+' failed':''}`,fail?'err':'ok');
+  selected.clear();updateSelUI();refreshDir();
+});
+function deleteSelected(){
+  const paths=getSelectedPaths();
+  if(paths.length)promptDelete(paths);
+  else if(ctxItem)promptDelete([ctxItem.path]);
+  else toast('Nothing selected','err');
 }
 
-async function confirmDelete() {
-    closeModal('modal-delete');
-    let ok = 0, fail = 0;
-    for (const path of deleteTargets) {
-        const data = await apiPost('delete', { path });
-        if (data.ok) ok++; else fail++;
-    }
-    showToast(`Deleted ${ok}${fail?' ('+fail+' failed)':''}`, fail?'err':'ok');
-    refreshDir();
+let chmodTarget=null;
+const CHMOD_CHIPS=['644','755','600','664','775'];
+$('chmod-chips').innerHTML=CHMOD_CHIPS.map(c=>`<button class="chip" data-chmod="${c}">${c}</button>`).join('');
+$('chmod-chips').addEventListener('click',e=>{
+  const c=e.target.closest('[data-chmod]');if(c)$('chmod-input').value=c.dataset.chmod;
+});
+function openChmod(item){
+  chmodTarget=item.path;
+  $('chmod-path').textContent=item.path;
+  $('chmod-input').value=item.perms||'';
+  openModal('m-chmod');setTimeout(()=>$('chmod-input').focus(),80);
 }
-
-// ============================================================
-//  CHMOD
-// ============================================================
-function openChmodModal(path, perms) {
-    chmodTarget = path;
-    document.getElementById('chmod-path-display').textContent = path;
-    document.getElementById('chmod-input').value = perms || '';
-    openModal('modal-chmod');
-    setTimeout(() => document.getElementById('chmod-input').focus(), 100);
-}
-
-async function doChmod() {
-    const perms = document.getElementById('chmod-input').value.trim();
-    if (!perms || !chmodTarget) return;
-    const data = await apiPost('chmod', { path: chmodTarget, perms });
-    closeModal('modal-chmod');
-    if (data.ok) { showToast('Permissions changed ✓','ok'); refreshDir(); }
-    else showToast(data.error,'err');
+async function doChmod(){
+  const perms=$('chmod-input').value.trim();if(!perms||!chmodTarget)return;
+  const d=await apiPost('chmod',{path:chmodTarget,perms});
+  closeModal('m-chmod');
+  if(d.ok){toast('Permissions updated ✓','ok');refreshDir()}else toast(d.error,'err');
 }
 
 // ============================================================
-//  COMPRESS / EXTRACT
+//  COMPRESS / EXTRACT / COPY-MOVE
 // ============================================================
-async function compressItem(path) {
-    showStatus('Compressing…');
-    const data = await apiPost('compress', { path });
-    clearStatus();
-    if (data.ok) { showToast('Compressed → ' + data.zip,'ok'); refreshDir(); }
-    else showToast(data.error,'err');
+async function compressItem(path){
+  flashStatus('Compressing…');
+  const d=await apiPost('compress',{path});
+  flashStatus('');
+  if(d.ok){toast('Zipped → '+d.zip,'ok');refreshDir()}else toast(d.error,'err');
+}
+async function extractItem(path){
+  flashStatus('Extracting…');
+  const d=await apiPost('extract',{path});
+  flashStatus('');
+  if(d.ok){toast('Extracted ✓','ok');refreshDir()}else toast(d.error,'err');
+}
+function compressSelected(){
+  const paths=getSelectedPaths();
+  paths.forEach(compressItem);
 }
 
-function compressSelected() {
-    const paths = getSelectedPaths();
-    if (!paths.length) { showToast('Nothing selected','err'); return; }
-    Promise.all(paths.map(p => compressItem(p))).then(() => refreshDir());
+let cmQueue=[],cmDone=0;
+function openCopyMove(items,action){
+  cmTargets=Array.isArray(items)?items:[items];cmAction=action;
+  $('cm-title').textContent=(action==='copy'?'📋 Copy ':'✂ Move ')+cmTargets.length+' item(s)';
+  $('cm-src').innerHTML=cmTargets.map(p=>'• '+esc(p)).join('<br>');
+  $('cm-dest').value=currentPath;
+  $('dir-suggest').innerHTML=['/','/tmp'].map(d=>`<option value="${d}"></option>`).join('');
+  openModal('m-copymove');setTimeout(()=>$('cm-dest').focus(),80);
 }
-
-async function extractItem(path) {
-    showStatus('Extracting…');
-    const data = await apiPost('extract', { path });
-    clearStatus();
-    if (data.ok) { showToast('Extracted ✓','ok'); refreshDir(); }
-    else showToast(data.error,'err');
-}
-
-// ============================================================
-//  COPY / MOVE
-// ============================================================
-function openCopyMoveModal(action, path) {
-    copyMoveAction = action;
-    copyMoveTarget = path;
-    document.getElementById('copymove-title').textContent = action === 'copy' ? '📋 Copy To' : '✂ Move To';
-    document.getElementById('copymove-dest').value = currentPath;
-    openModal('modal-copymove');
-    setTimeout(() => document.getElementById('copymove-dest').focus(), 100);
-}
-
-async function doCopyMove() {
-    const dest = document.getElementById('copymove-dest').value.trim();
-    if (!dest) return;
-    const data = await apiPost(copyMoveAction, { src: copyMoveTarget, dest });
-    closeModal('modal-copymove');
-    if (data.ok) { showToast(copyMoveAction === 'copy' ? 'Copied ✓' : 'Moved ✓','ok'); refreshDir(); }
-    else showToast(data.error,'err');
-}
-
-// ============================================================
-//  SEARCH
-// ============================================================
-async function doSearch() {
-    const q = document.getElementById('search-input').value.trim();
-    if (!q) return;
-    showStatus('Searching…');
-    const data = await api({ action:'search', path:currentPath, q });
-    clearStatus();
-    if (data.error) { showToast(data.error,'err'); return; }
-    const results = data.results || [];
-    document.getElementById('search-title').textContent = `🔍 "${q}" — ${results.length} results`;
-    if (!results.length) {
-        document.getElementById('search-body').innerHTML = '<div class="empty-state" style="height:100px;"><span>No results</span></div>';
-    } else {
-        document.getElementById('search-body').innerHTML = '<div class="search-results">' +
-            results.map(r => `
-                <div class="search-result-item" onclick="handleSearchClick('${esc(r.path)}',${r.is_dir?1:0},'${esc(r.name)}')">
-                  <span style="font-size:16px;">${r.is_dir?'📁':'📄'}</span>
-                  <div>
-                    <div>${esc(r.name)}</div>
-                    <div class="search-result-path">${esc(r.path)}</div>
-                  </div>
-                  <span style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--text2);">${r.is_dir?'dir':humanSize(r.size)}</span>
-                </div>`).join('') + '</div>';
-    }
-    openModal('modal-search');
-}
-
-function handleSearchClick(path, isDir, name) {
-    closeModal('modal-search');
-    if (isDir) navTo(path);
-    else openFile(path, name);
+function bulkCopyMove(action){const p=getSelectedPaths();p.length?openCopyMove(p,action):toast('Nothing selected','err')}
+async function doCopyMove(){
+  const dest=$('cm-dest').value.trim();if(!dest||!cmTargets.length)return;
+  closeModal('m-copymove');
+  let ok=0,fail=0;
+  for(const src of cmTargets){
+    const d=await apiPost(cmAction,{src,dest});
+    d.ok?ok++:fail++;
+  }
+  toast(`${cmAction==='copy'?'Copied':'Moved'} ${ok}${fail?' · '+fail+' failed':''}`,fail?'err':'ok');
+  clearSelection();refreshDir();
 }
 
 // ============================================================
 //  PROPERTIES
 // ============================================================
-function showProperties(item) {
-    const rows = [
-        ['Name', item.name],
-        ['Path', item.path],
-        ['Type', item.is_dir ? 'Directory' : 'File'],
-        ['Size', item.is_dir ? '—' : humanSize(item.size) + ' (' + item.size + ' bytes)'],
-        ['Modified', formatDate(item.mtime)],
-        ['Permissions', item.perms],
-        ['Writable', item.writable ? '✓ Yes' : '✗ No'],
-    ];
-    document.getElementById('props-body').innerHTML =
-        '<table class="props-table">' +
-        rows.map(([k,v]) => `<tr><td>${k}</td><td style="font-family:var(--mono);font-size:12px;">${esc(String(v))}</td></tr>`).join('') +
-        '</table>';
-    openModal('modal-props');
+function showProps(it){
+  const rows=[
+    ['Name',it.name],['Path',it.path],['Type',it.is_dir?'Directory':'File'],
+    ['Size',it.is_dir?'—':humanSize(it.size)+' ('+it.size.toLocaleString()+' bytes)'],
+    ['Modified',fmtDate(it.mtime)],['Permissions',it.perms],
+    ['Writable',it.writable?'Yes':'No'],
+  ];
+  $('props-body').innerHTML='<table class="props-table">'
+    +rows.map(([k,v])=>`<tr><td>${k}</td><td>${esc(String(v))}</td></tr>`).join('')+'</table>';
+  openModal('m-props');
 }
 
 // ============================================================
 //  CONTEXT MENU
 // ============================================================
-function showCtxMenu(e, path, name, isDir) {
-    e.preventDefault();
-    e.stopPropagation();
-    ctxTarget = { path, name, isDir: !!isDir };
-    const item = currentItems.find(i => i.path === path);
-    const ext = name.split('.').pop().toLowerCase();
-    const isZip = ext === 'zip';
-    const isImg = ['jpg','jpeg','png','gif','webp'].includes(ext);
-
-    const menu = document.getElementById('ctx-menu');
-    menu.innerHTML = [
-        isDir
-            ? `<div class="ctx-item" onclick="navTo('${esc(path)}')">📂 Open</div>`
-            : `<div class="ctx-item" onclick="openFile('${esc(path)}','${esc(name)}')">✏ Open / Edit</div>`,
-        !isDir ? `<div class="ctx-item" onclick="downloadFile('${esc(path)}')">⬇ Download</div>` : '',
-        isImg  ? `<div class="ctx-item" onclick="openImagePreview('${esc(path)}','${esc(name)}')">🖼 Preview</div>` : '',
-        '<div class="ctx-sep"></div>',
-        `<div class="ctx-item" onclick="openRenameModal('${esc(path)}','${esc(name)}')">✏ Rename</div>`,
-        `<div class="ctx-item" onclick="openCopyMoveModal('copy','${esc(path)}')">📋 Copy to…</div>`,
-        `<div class="ctx-item" onclick="openCopyMoveModal('move','${esc(path)}')">✂ Move to…</div>`,
-        '<div class="ctx-sep"></div>',
-        `<div class="ctx-item" onclick="compressItem('${esc(path)}')">🗜 Compress to ZIP</div>`,
-        isZip ? `<div class="ctx-item" onclick="extractItem('${esc(path)}')">📦 Extract ZIP</div>` : '',
-        '<div class="ctx-sep"></div>',
-        item ? `<div class="ctx-item" onclick="openChmodModal('${esc(path)}','${item.perms}')">🔒 Permissions</div>` : '',
-        item ? `<div class="ctx-item" onclick="showProperties(${JSON.stringify(JSON.stringify(item))})">ℹ Properties</div>` : '',
-        '<div class="ctx-sep"></div>',
-        `<div class="ctx-item danger" onclick="promptDelete(['${esc(path)}'])">🗑 Delete</div>`,
-    ].filter(Boolean).join('');
-
-    // Fix properties onclick (JSON nested)
-    if (item) {
-        const propBtn = menu.querySelector('[data-prop]');
-        // Re-bind via index
-    }
-
-    menu.classList.remove('hidden');
-    let x = e.clientX, y = e.clientY;
-    if (x + 200 > window.innerWidth)  x = window.innerWidth - 210;
-    if (y + menu.offsetHeight > window.innerHeight) y = window.innerHeight - menu.offsetHeight - 10;
-    menu.style.left = x + 'px';
-    menu.style.top  = y + 'px';
-
-    // Re-bind properties properly
-    if (item) {
-        const propEl = [...menu.querySelectorAll('.ctx-item')].find(el => el.textContent.includes('Properties'));
-        if (propEl) propEl.onclick = () => { hideCtxMenu(); showProperties(item); };
-    }
-    // Bind compress
-    const compEl = [...menu.querySelectorAll('.ctx-item')].find(el => el.textContent.includes('Compress'));
-    if (compEl) compEl.onclick = () => { hideCtxMenu(); compressItem(path); };
-    if (isZip) {
-        const extEl = [...menu.querySelectorAll('.ctx-item')].find(el => el.textContent.includes('Extract'));
-        if (extEl) extEl.onclick = () => { hideCtxMenu(); extractItem(path); };
-    }
+function hideCtx(){$('ctx').classList.add('hiddenx')}
+function openCtxAt(anchor,item){
+  ctxItem=item;
+  const e=extOf(item.name),isZip=e==='zip';
+  const acts=[
+    item.is_dir?['📂','Open',()=>navTo(item.path)]:['✏️','Open / Edit',()=>openItem(item)],
+    ...(!item.is_dir?[['⬇','Download',()=>downloadFile(item.path)]]:[]),
+    ...(MED_EXT.img.includes(e)||MED_EXT.vid.includes(e)||MED_EXT.aud.includes(e)||e==='pdf'
+      ?[['▶️','Preview',()=>openPreview(item)]]:[]),
+    null,
+    ['✏️','Rename',()=>openRename(item)],
+    null,
+    ['📋','Copy to…',()=>openCopyMove([item.path],'copy')],
+    ['✂️','Move to…',()=>openCopyMove([item.path],'move')],
+    null,
+    ['🗜️','Compress to ZIP',()=>compressItem(item.path)],
+    ...(isZip?[['📦','Extract here',()=>extractItem(item.path)]]:[]),
+    null,
+    ['🔒','Permissions',()=>openChmod(item)],
+    ['ℹ️','Properties',()=>showProps(item)],
+    null,
+    ['🗑️','Delete',()=>promptDelete([item.path]),'danger'],
+  ];
+  $('ctx').innerHTML=acts.map(a=>a?`<button class="ctx-item${a[3]?' danger':''}" data-i="${acts.indexOf(a)}"><span>${a[0]}</span>${a[1]}</button>`:'<div class="ctx-sep"></div>').join('');
+  $('ctx').querySelectorAll('[data-i]').forEach(b=>{
+    b.addEventListener('click',()=>{hideCtx();acts[+b.dataset.i][2]()});
+  });
+  const ctx=$('ctx');ctx.classList.remove('hiddenx');
+  let x,y;
+  if(anchor instanceof MouseEvent||(anchor&&anchor.x!==undefined&&anchor.left===undefined)){
+    x=(anchor.clientX??anchor.x);y=(anchor.clientY??anchor.y);
+    ctx.style.left=x+'px';ctx.style.top=y+'px';ctx.style.bottom='auto';ctx.style.transform='none';
+  }else{ // DOMRect from ⋯ button
+    const r=anchor;x=r.right;y=r.bottom;
+    ctx.style.left=Math.min(x,innerWidth-210)+'px';ctx.style.top=y+4+'px';ctx.style.bottom='auto';ctx.style.transform='none';
+  }
+  requestAnimationFrame(()=>{ // clamp into viewport
+    const rect=ctx.getBoundingClientRect();
+    let nx=parseFloat(ctx.style.left),ny=parseFloat(ctx.style.top);
+    if(innerWidth<=640){ctx.style.left='50%';ctx.style.right='auto';ctx.style.top='auto';ctx.style.bottom='12px';ctx.style.transform='translateX(-50%)';return}
+    if(nx+rect.width>innerWidth-8)nx=innerWidth-rect.width-8;
+    if(ny+rect.height>innerHeight-8)ny=Math.max(8,ny-rect.height-(anchor.bottom?anchor.height:0)-8);
+    ctx.style.left=nx+'px';ctx.style.top=ny+'px';
+  });
 }
-
-function hideCtxMenu() {
-    document.getElementById('ctx-menu').classList.add('hidden');
-}
+document.addEventListener('click',e=>{if(!e.target.closest('#ctx'))hideCtx()});
+document.addEventListener('contextmenu',e=>{if(!e.target.closest('#file-area'))hideCtx()});
 
 // ============================================================
-//  SORT
+//  DEEP SEARCH
 // ============================================================
-function setSortColumn(col) {
-    if (sortColumn === col) sortAsc = !sortAsc;
-    else { sortColumn = col; sortAsc = true; }
-    renderFiles();
+async function doSearch(){
+  const q=prompt('Search recursively under '+currentPath+'\nEnter filename:');
+  if(q===null)return;
+  const query=q.trim();if(!query)return;
+  flashStatus('Searching…');
+  const d=await api({action:'search',path:currentPath,q:query});
+  flashStatus('');
+  const res=d.results||[];
+  $('search-title').textContent=`🔍 "${query}" — ${res.length} result${res.length===1?'':'s'}`;
+  $('search-body').innerHTML=res.length?res.map(r=>`
+    <div class="sr-item" data-sp="${esc(r.path)}" data-sd="${r.is_dir?1:0}" data-sn="${esc(r.name)}">
+      <span style="font-size:17px">${r.is_dir?'📁':fileIcon(r)}</span>
+      <div style="min-width:0"><div style="font-weight:500">${esc(r.name)}</div><div class="sr-path">${esc(r.path)}</div></div>
+      <span style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--text2)">${r.is_dir?'dir':humanSize(r.size)}</span>
+    </div>`).join('')
+    :'<div class="empty-state"><span class="big">😕</span><h3>No results</h3></div>';
+  openModal('m-search');
 }
+$('search-body').addEventListener('click',e=>{
+  const it=e.target.closest('.sr-item');if(!it)return;
+  closeModal('m-search');
+  const sd=it.dataset.sd==='1';
+  sd?navTo(it.dataset.sp):openItem({path:it.dataset.sp,name:it.dataset.sn,is_dir:false,size:0,mtime:0,perms:'',writable:true});
+});
 
-function cycleSortMode() {
-    const modes = ['name','size','mtime'];
-    const idx = modes.indexOf(sortColumn);
-    sortColumn = modes[(idx + 1) % modes.length];
-    renderFiles();
-    showToast('Sorted by ' + sortColumn, 'ok');
-}
-
 // ============================================================
-//  VIEW TOGGLE
+//  COMMAND PALETTE (Ctrl/⌘+K)
 // ============================================================
-function toggleView() {
-    viewMode = viewMode === 'list' ? 'grid' : 'list';
-    renderFiles();
+function paletteActions(){
+  return [
+    {i:'⬆',t:'Upload files',run:()=>openUploadModal()},
+    {i:'📁',t:'New folder',run:openMkdirModal},
+    {i:'📄',t:'New file',run:openNewFileModal},
+    {i:'▦',t:'Toggle list/grid view',run:toggleView},
+    {i:'🌙',t:'Toggle dark/light theme',run:toggleTheme},
+    ...(TERM_OK?[{i:'⌨️',t:'Toggle terminal',run:toggleTerm}]:[]),
+    {i:'🌐',t:'Deep search in folder',run:doSearch},
+    {i:'↻',t:'Refresh',run:refreshDir},
+    {i:'🏠',t:'Go to Root',run:()=>navTo('/')},
+    {i:'☑️',t:'Select all in view',run:selectAll},
+    {i:'🗜️',t:'Compress selection',run:compressSelected},
+    {i:'🗑️',t:'Delete selection',run:deleteSelected},
+    {i:'⏻',t:'Logout',run:()=>location.href='?logout'},
+  ];
 }
+function openPalette(){
+  $('pal-input').value='';palIdx=0;renderPal('');
+  openModal('m-palette');setTimeout(()=>$('pal-input').focus(),60);
+}
+function renderPal(q){
+  q=q.toLowerCase();
+  const acts=paletteActions().filter(a=>a.t.toLowerCase().includes(q))
+    .map(a=>({icon:a.i,title:a.t,sub:'action',run:a.run}));
+  const items=currentItems.filter(i=>q&&i.name.toLowerCase().includes(q))
+    .slice(0,10).map(i=>({icon:fileIcon(i),title:i.name,sub:(i.is_dir?'folder · ':'')+i.path,run:()=>openItem(i)}));
+  palMatches=[...acts,...items].slice(0,14);
+  palIdx=Math.min(palIdx,Math.max(0,palMatches.length-1));
+  $('pal-list').innerHTML=palMatches.length?palMatches.map((m,i)=>`
+    <div class="pal-item${i===palIdx?' on':''}" data-pi="${i}">
+      <span class="pi">${m.icon}</span>
+      <span class="pt"><b>${esc(m.title)}</b><span>${esc(m.sub)}</span></span>
+    </div>`).join('')
+    :'<div class="empty-state" style="padding:26px"><span class="big">🤷</span><h3>No matches</h3></div>';
+}
+$('pal-input').addEventListener('input',e=>{palIdx=0;renderPal(e.target.value)});
+$('pal-input').addEventListener('keydown',e=>{
+  if(e.key==='ArrowDown'){e.preventDefault();palIdx=Math.min(palIdx+1,palMatches.length-1);renderPal($('pal-input').value)}
+  else if(e.key==='ArrowUp'){e.preventDefault();palIdx=Math.max(palIdx-1,0);renderPal($('pal-input').value)}
+  else if(e.key==='Enter'){e.preventDefault();const m=palMatches[palIdx];if(m){closeModal('m-palette');m.run()}}
+});
+$('pal-list').addEventListener('click',e=>{
+  const it=e.target.closest('[data-pi]');if(!it)return;
+  closeModal('m-palette');palMatches[+it.dataset.pi].run();
+});
 
 // ============================================================
 //  DISK INFO
 // ============================================================
-async function loadDiskInfo() {
-    const data = await api({ action:'diskinfo' });
-    if (data.error) return;
-    document.getElementById('disk-used-pct').textContent = data.pct + '%';
-    document.getElementById('disk-used-txt').textContent  = data.used_h;
-    document.getElementById('disk-total-txt').textContent = data.total_h;
-    const fill = document.getElementById('disk-fill');
-    fill.style.width = data.pct + '%';
-    if (data.pct > 85) fill.classList.add('warn'); else fill.classList.remove('warn');
-    document.getElementById('status-php').textContent = 'PHP ' + data.php + ' / ' + data.os;
+async function loadDiskInfo(){
+  const d=await api({action:'diskinfo'});
+  if(d.error)return;
+  const C=2*Math.PI*52;
+  $('disk-pct').textContent=d.pct+'%';
+  $('disk-used').textContent=d.used_h;$('disk-total').textContent=d.total_h;$('disk-free').textContent=d.free_h;
+  const fg=$('ring-fg');
+  fg.style.strokeDashoffset=C*(1-d.pct/100);
+  if(d.pct>85)fg.style.stroke='#fb7185';
+  $('sb-php').textContent='PHP '+d.php;$('sb-os').textContent=d.os;
+  $('st-php').textContent='PHP '+d.php+' · '+d.os+' · free '+d.free_h;
 }
 
 // ============================================================
 //  TERMINAL
 // ============================================================
-function toggleTerminal() {
-    const panel = document.getElementById('terminal-panel');
-    panel.classList.toggle('hidden');
-    if (!panel.classList.contains('hidden')) {
-        document.getElementById('term-input').focus();
-        updateTermPrompt();
+function toggleTerm(){
+  const p=$('term-panel');p.classList.toggle('hiddenx');
+  if(!p.classList.contains('hiddenx')){$('term-input').focus();updatePrompt()}
+  $('btn-term').classList.toggle('primary',!p.classList.contains('hiddenx'));
+}
+function closeTerm(){$('term-panel').classList.add('hiddenx');$('btn-term').classList.remove('primary')}
+function toggleTermFs(){$('term-panel').classList.toggle('fullscreen');$('btn-term-fs').textContent=$('term-panel').classList.contains('fullscreen')?'🗗':'⛶'}
+function clearTerm(){$('term-out').innerHTML=''}
+function updatePrompt(){
+  let disp=termCwd.startsWith(ROOT_ABS)?termCwd.slice(ROOT_ABS.length)||'/':termCwd;
+  disp=disp.replace(/^\/+/,'~/');
+  $('term-prompt').textContent=disp+' $ ';
+  $('term-cwd').textContent=termCwd;
+}
+try{termHist=JSON.parse(localStorage.getItem('fm_term_hist')||'[]')}catch(e){}
+function pushHist(cmd){termHist.unshift(cmd);termHist=termHist.slice(0,100);try{localStorage.setItem('fm_term_hist',JSON.stringify(termHist))}catch(e){}}
+
+$('term-input').addEventListener('keydown',async e=>{
+  if(e.key==='Enter'){
+    const cmd=e.target.value.trim();if(!cmd)return;
+    pushHist(cmd);termHistIdx=-1;e.target.value='';
+    termLine('$ '+cmd,'tl-cmd');
+    if(cmd==='clear'||cmd==='cls'){clearTerm();return}
+    if(cmd==='help'){
+      termLine('Built-ins: clear · cd <dir> · any shell command.\nHistory: ↑/↓ · Clear: Ctrl+L · Fullscreen: ⛶','');
+      return;
     }
+    e.target.disabled=true;
+    const d=await apiPost('terminal',{cmd,cwd:termCwd});
+    e.target.disabled=false;e.target.focus();
+    if(d.cwd){termCwd=d.cwd;updatePrompt()}
+    if(d.output)termLine(d.output,d.output.trim().endsWith('\n')?'tl-out':'tl-out');
+    scrollTerm();
+  }else if(e.key==='ArrowUp'){e.preventDefault();termHistIdx=Math.min(termHistIdx+1,termHist.length-1);e.target.value=termHist[termHistIdx]||''}
+  else if(e.key==='ArrowDown'){e.preventDefault();termHistIdx=Math.max(termHistIdx-1,-1);e.target.value=termHistIdx>=0?termHist[termHistIdx]:''}
+  else if(e.key==='l'&&e.ctrlKey){e.preventDefault();clearTerm()}
+});
+function termLine(text,cls){
+  const div=document.createElement('div');div.className=cls;div.textContent=text;
+  $('term-out').appendChild(div);scrollTerm();
 }
-
-function closeTerminal() {
-    document.getElementById('terminal-panel').classList.add('hidden');
-}
-
-function clearTerm() {
-    document.getElementById('terminal-output').innerHTML = '';
-}
-
-function updateTermPrompt() {
-    const root = '<?= addslashes(realpath(FM_ROOT)) ?>';
-    let display = termCwd.replace(root, '~');
-    document.getElementById('term-prompt').textContent = display + ' $ ';
-    document.getElementById('term-cwd-display').textContent = termCwd;
-}
-
-async function handleTermKey(e) {
-    if (e.key === 'Enter') {
-        const input = document.getElementById('term-input');
-        const cmd   = input.value;
-        if (!cmd.trim()) return;
-        termHistory.unshift(cmd);
-        termHistIdx = -1;
-        input.value = '';
-        appendTermLine(cmd, 'cmd');
-        input.disabled = true;
-        const data = await apiPost('terminal', { cmd, cwd: termCwd });
-        input.disabled = false;
-        input.focus();
-        if (data.error) { appendTermLine(data.error, 'err'); return; }
-        if (data.cwd) { termCwd = data.cwd; updateTermPrompt(); }
-        if (data.output) appendTermLine(data.output, 'out');
-    } else if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        termHistIdx = Math.min(termHistIdx + 1, termHistory.length - 1);
-        document.getElementById('term-input').value = termHistory[termHistIdx] || '';
-    } else if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        termHistIdx = Math.max(termHistIdx - 1, -1);
-        document.getElementById('term-input').value = termHistIdx >= 0 ? termHistory[termHistIdx] : '';
-    } else if (e.key === 'l' && e.ctrlKey) {
-        e.preventDefault(); clearTerm();
-    }
-}
-
-function appendTermLine(text, type='out') {
-    const out = document.getElementById('terminal-output');
-    const div = document.createElement('div');
-    div.className = 'term-line-' + type;
-    if (type === 'cmd') div.textContent = '$ ' + text;
-    else div.textContent = text;
-    out.appendChild(div);
-    out.scrollTop = out.scrollHeight;
-}
+function scrollTerm(){const o=$('term-out');o.scrollTop=o.scrollHeight}
 
 // ============================================================
-//  MODAL HELPERS
+//  KEYBOARD SHORTCUTS
 // ============================================================
-function openModal(id) {
-    document.getElementById(id).classList.remove('hidden');
-}
-function closeModal(id) {
-    document.getElementById(id).classList.add('hidden');
-}
-function closeAllModals() {
-    document.querySelectorAll('.overlay').forEach(o => o.classList.add('hidden'));
-}
-
-// Close on overlay click
-document.addEventListener('click', e => {
-    if (e.target.classList.contains('overlay')) closeAllModals();
+document.addEventListener('keydown',e=>{
+  const typing=/^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName);
+  if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();openPalette();return}
+  if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='s'){e.preventDefault();if(edPath)doSave();return}
+  if(e.key==='Escape'){
+    if(!$('m-palette').classList.contains('hiddenx'))closeModal('m-palette');
+    else{closeAllModals();clearSelection()}
+    return;
+  }
+  if(typing)return;
+  if(e.key==='Delete')deleteSelected();
+  if(e.key==='F2'&&ctxItem)openRename(ctxItem);
+  if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='a'){e.preventDefault();selectAll()}
+  if(e.key==='/' ){e.preventDefault();$('filter-input').focus()}
+  if(e.altKey&&e.key==='ArrowLeft')goBack();
+  if(e.altKey&&e.key==='ArrowRight')goForward();
 });
 
 // ============================================================
-//  EDITOR HELPERS
+//  SIDEBAR DRAWER (mobile)
 // ============================================================
-function handleEditorKey(e) {
-    if (e.key === 'Tab') {
-        e.preventDefault();
-        const ta = e.target;
-        const s = ta.selectionStart, end = ta.selectionEnd;
-        ta.value = ta.value.substring(0, s) + '    ' + ta.value.substring(end);
-        ta.selectionStart = ta.selectionEnd = s + 4;
-    }
-}
+$('btn-menu').addEventListener('click',()=>{
+  $('sidebar').classList.add('open');$('sb-backdrop').classList.remove('hiddenx');
+});
+$('sb-backdrop').addEventListener('click',()=>{
+  $('sidebar').classList.remove('open');$('sb-backdrop').classList.add('hiddenx');
+});
+document.querySelectorAll('[data-nav]').forEach(el=>{
+  el.addEventListener('click',()=>{
+    navTo(el.dataset.nav);
+    document.querySelectorAll('.sb-link[data-nav]').forEach(l=>l.classList.toggle('active',l===el));
+    $('sidebar').classList.remove('open');$('sb-backdrop').classList.add('hiddenx');
+  });
+});
 
 // ============================================================
-//  STATUS / TOAST
+//  INIT
 // ============================================================
-function showStatus(msg, isErr=false) {
-    const el = document.getElementById('status-msg');
-    el.textContent = msg;
-    el.className = isErr ? 'error' : '';
-}
-function clearStatus() { document.getElementById('status-msg').textContent = ''; }
-
-let toastTimer;
-function showToast(msg, type='ok') {
-    const t = document.getElementById('toast');
-    t.textContent = msg;
-    t.className = 'show ' + type;
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => { t.classList.remove('show'); }, 3000);
-}
-
-// ============================================================
-//  UTILITIES
-// ============================================================
-function esc(s) {
-    return String(s)
-        .replace(/&/g,'&amp;')
-        .replace(/</g,'&lt;')
-        .replace(/>/g,'&gt;')
-        .replace(/"/g,'&quot;')
-        .replace(/'/g,'&#039;');
-}
-
-function humanSize(b) {
-    if (b === undefined || b === null) return '-';
-    const units = ['B','KB','MB','GB','TB'];
-    let i = 0;
-    while (b >= 1024 && i < 4) { b /= 1024; i++; }
-    return Math.round(b * 10) / 10 + ' ' + units[i];
-}
+$('btn-theme').addEventListener('click',toggleTheme);
+$('btn-back').addEventListener('click',goBack);
+$('btn-fwd').addEventListener('click',goForward);
+window.addEventListener('resize',()=>{if(innerWidth>920){$('sidebar').classList.remove('open');$('sb-backdrop').classList.add('hiddenx')}});
+navTo('/',false);
 </script>
 <?php endif; ?>
 </body>

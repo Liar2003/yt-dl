@@ -166,6 +166,10 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && isset($_GET['ajax'])) {
         $url = 'https://www.youtube.com/watch?v=' . $videoId; // canonical form, same as the bot uses
     }
 
+    // tool77 only accepts the plain https://www.facebook.com/<type>/<id>
+    // shape — strip tracking queries etc. before it sees the link.
+    $url = Validator::normalizeFacebookUrl($url);
+
     $tool77 = new Tool77Service();
     $data = $tool77->fetch($url);
 
