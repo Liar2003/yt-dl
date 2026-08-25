@@ -37,8 +37,11 @@ return [
     // local download + multipart upload
     'max_url_upload_bytes' => 20 * 1024 * 1024,
 
-    // How long tool77.com results stay cached (seconds). Kept short
-    // deliberately — the resolved CDN links it returns are signed and
-    // short-lived (see Tool77Service's docblock). Default: 900 (15 min).
-    'tool77_cache_ttl' => 900,
+    // How long tool77.com results stay cached (seconds). For YouTube
+    // this doubles as the lifetime of the download-menu buttons: they
+    // point at index.php?dl=1… which re-resolves the real CDN link
+    // from this cache at tap time. The resolved googlevideo URLs
+    // themselves stay signed for ~6h, so anything up to a few hours is
+    // safe. Default: 3600 (1 hour).
+    'tool77_cache_ttl' => 3600,
 ];

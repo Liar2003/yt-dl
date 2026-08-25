@@ -403,13 +403,12 @@ class BotController
 
     /**
      * YouTube: no media is sent to the chat. The bot replies with a
-     * menu message whose inline URL buttons point straight at the
-     * resolved CDN links, so the user's browser does the download:
-     * video buttons for each rung of Tool77Service::MENU_HEIGHTS the
-     * video actually offers (1080p → 360p), plus one audio button per
-     * format tool77 returned (typically m4a + opus). Embedding the
-     * signed googlevideo URLs at menu time also sidesteps two upload
-     * ceilings that made direct delivery unreliable above 20–50MB.
+     * menu message whose inline buttons are short download links on
+     * this server (index.php re-resolves the real CDN URL when tapped,
+     * so the user's browser does the actual download): video buttons
+     * for each rung of Tool77Service::MENU_HEIGHTS the video actually
+     * offers (1080p → 360p), plus one audio button per format tool77
+     * returned (typically m4a + opus).
      */
     public function handleYouTubeUrl(int $chatId, int $userId, string $url): void
     {
@@ -434,7 +433,7 @@ class BotController
             return;
         }
 
-        $keyboard = $this->buildYoutubeKeyboard($data);
+        $keyboard = $this->buildYoutubeKeyboard($data, $this->downloaderBaseUrl(), $this->tool77->cacheId($cleanUrl));
         if (!$keyboard) {
             $this->telegram->sendMessage($chatId, "❌ No downloadable formats found for that video.");
             return;
@@ -451,14 +450,40 @@ class BotController
     }
 
     /**
-     * Inline URL-button keyboard over getVideoQualities() +
+     * Public URL of the web downloader's redirector — index.php next
+     * to webhook.php on the same host. Taken from the incoming
+     * webhook's Host header, falling back to the configured webhook
+     * URL's host (CLI context has no HTTP_HOST).
+     */
+    private function downloaderBaseUrl(): string
+    {
+        $host = $_SERVER['HTTP_HOST'] ?? null;
+        if (!$host) {
+            $host = parse_url((string) Config::get('webhook_url', ''), PHP_URL_HOST);
+        }
+        return $host ? 'https://' . $host . '/index.php' : '';
+    }
+
+    /**
+     * Inline-button keyboard over getVideoQualities() +
      * getAudioFormats(): two buttons per row (Telegram renders these
      * nicely at that width), videos first then audios. Null when
      * neither produced a single resolvable link. Everything above
      * 360p is a video-only stream, so those buttons get a 🔇 marker.
+     *
+     * Buttons deliberately do NOT carry the resolved CDN URLs — each
+     * googlevideo link is 800–1500 chars and a few of them blow past
+     * Telegram's reply-markup size cap ("reply markup is too long").
+     * They carry a short index.php?dl=1… redirect link keyed by the
+     * tool77 cache id instead; index.php re-resolves the real URL at
+     * tap time. That also makes button lifetime == tool77_cache_ttl.
      */
-    private function buildYoutubeKeyboard(array $data): ?array
+    private function buildYoutubeKeyboard(array $data, string $baseUrl, string $id): ?array
     {
+        if ($baseUrl === '' || $id === '') {
+            return null;
+        }
+
         $videos = $this->tool77->getVideoQualities($data);
         $audios = $this->tool77->getAudioFormats($data);
         if (!$videos && !$audios) {
@@ -468,7 +493,10 @@ class BotController
         $rows = [];
         $row = [];
         foreach ($videos as $height => $v) {
-            $row[] = ['text' => "🎬 {$height}p" . ($v['hasAudio'] ? '' : ' 🔇'), 'url' => $v['url']];
+            $row[] = [
+                'text' => "🎬 {$height}p" . ($v['hasAudio'] ? '' : ' 🔇'),
+                'url'  => $baseUrl . '?dl=1&id=' . urlencode($id) . '&kind=video&h=' . (int) $height,
+            ];
             if (count($row) === 2) {
                 $rows[] = $row;
                 $row = [];
@@ -476,7 +504,10 @@ class BotController
         }
         foreach ($audios as $ext => $a) {
             $label = strtoupper($ext) . ($a['kbps'] > 0 ? " · {$a['kbps']}kbps" : '');
-            $row[] = ['text' => "🎵 {$label}", 'url' => $a['url']];
+            $row[] = [
+                'text' => "🎵 {$label}",
+                'url'  => $baseUrl . '?dl=1&id=' . urlencode($id) . '&kind=audio&fmt=' . rawurlencode($ext),
+            ];
             if (count($row) === 2) {
                 $rows[] = $row;
                 $row = [];

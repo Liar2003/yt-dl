@@ -32,11 +32,11 @@ use Throwable;
  *    tap long after the original message may hit an expired link even
  *    though it's still "cached" here; that shows up as Telegram
  *    failing to fetch the file, not as an error from this service.
- *    YouTube no longer routes through buttons at all — see
- *    getVideoQualities()/getAudioFormats(): BotController embeds the
- *    resolved links straight into inline URL buttons the moment the
- *    menu message is sent, so the link the user taps is as fresh as
- *    the fetch itself.
+ *    YouTube no longer delivers media through the bot either — its
+ *    menu buttons point at short index.php?dl=1… links and the real
+ *    CDN URL is re-resolved from this cache only when tapped, so a
+ *    button's lifetime is exactly this TTL (see BotController's
+ *    buildYoutubeKeyboard()).
  *
  * 3. tool77.com's own web UI gates downloads behind a bot-check
  *    ("wait a few seconds" / browser extension) — but that lives in

@@ -18,6 +18,51 @@ use App\Helpers\Validator;
 use App\Services\TikwmService;
 use App\Services\Tool77Service;
 
+if (($_SERVER['REQUEST_METHOD'] ?? '') === 'GET' && isset($_GET['dl'])) {
+    // Short-link redirector for the bot's YouTube menu buttons. Inline
+    // buttons can't carry raw googlevideo URLs — each resolved link is
+    // 800–1500 chars, and a handful of them in one inline keyboard
+    // trips Telegram's "reply markup is too long" limit. Buttons point
+    // here instead (?dl=1&id=<tool77 cache id>&kind=video&h=1080 /
+    // kind=audio&fmt=m4a); at tap time the cached tool77 response is
+    // re-resolved and the browser is 302'd to the real CDN URL. The
+    // cache entry (tool77_cache_ttl) is the lifetime of those buttons.
+    $id = preg_replace('/[^a-f0-9]/i', '', (string) ($_GET['id'] ?? ''));
+    $kind = ($_GET['kind'] ?? '') === 'audio' ? 'audio' : 'video';
+
+    $expired = function () {
+        http_response_code(404);
+        echo 'That download menu expired — send the YouTube link to the bot again.';
+        exit;
+    };
+
+    $tool77 = new Tool77Service();
+    $data = $id !== '' ? $tool77->getCachedById($id) : null;
+    if (!$data) {
+        Logger::write('info', 'dl redirect on expired id', ['id' => $id, 'kind' => $kind]);
+        $expired();
+    }
+
+    if ($kind === 'video') {
+        $height = (int) ($_GET['h'] ?? 0);
+        $target = $tool77->getVideoQualities($data)[$height]['url'] ?? null;
+        if (!$target) {
+            Logger::write('warning', 'dl redirect: requested video quality not in cached response', ['id' => $id, 'h' => $height]);
+            $expired();
+        }
+    } else {
+        $fmt = strtolower(preg_replace('/[^a-z0-9]/i', '', (string) ($_GET['fmt'] ?? '')));
+        $target = $tool77->getAudioFormats($data)[$fmt]['url'] ?? null;
+        if (!$target) {
+            Logger::write('warning', 'dl redirect: requested audio format not in cached response', ['id' => $id, 'fmt' => $fmt]);
+            $expired();
+        }
+    }
+
+    header('Location: ' . $target);
+    exit;
+}
+
 if (($_SERVER['REQUEST_METHOD'] ?? '') === 'GET' && isset($_GET['proxy'])) {
     // googlevideo.com links commonly reject a fetch from any IP other
     // than whichever server resolved them from tool77 — a visitor's
