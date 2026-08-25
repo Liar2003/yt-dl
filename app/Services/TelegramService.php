@@ -110,14 +110,28 @@ class TelegramService
         return $this->request('sendVideo', $params, true);
     }
 
-    public function sendPhoto(int $chatId, string $photoUrl, string $caption = ''): ?array
+    public function sendPhoto(int $chatId, string $photoUrl, string $caption = '', ?array $replyMarkup = null): ?array
     {
-        return $this->request('sendPhoto', [
+        $params = [
             'chat_id'    => $chatId,
             'photo'      => $photoUrl,
             'caption'    => $caption,
             'parse_mode' => 'Markdown',
-        ]);
+        ];
+        if ($replyMarkup !== null) {
+            $params['reply_markup'] = json_encode($replyMarkup);
+        }
+
+        $result = $this->request('sendPhoto', $params);
+
+        // Same stray-markdown protection sendMessage() has — captions
+        // carry user-sourced titles too.
+        if ($this->isParseError($result)) {
+            Logger::write('warning', 'Markdown parse failed — resending without formatting', ['method' => 'sendPhoto', 'chat_id' => $chatId]);
+            unset($params['parse_mode']);
+            $result = $this->request('sendPhoto', $params);
+        }
+        return $result;
     }
 
     /**

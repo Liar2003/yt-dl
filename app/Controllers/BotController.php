@@ -402,13 +402,15 @@ class BotController
     }
 
     /**
-     * YouTube: no media is sent to the chat. The bot replies with a
-     * menu message whose inline buttons are short download links on
-     * this server (index.php re-resolves the real CDN URL when tapped,
-     * so the user's browser does the actual download): video buttons
-     * for each rung of Tool77Service::MENU_HEIGHTS the video actually
-     * offers (1080p → 360p), plus one audio button per format tool77
-     * returned (typically m4a + opus).
+     * YouTube: no media file is sent to the chat. The bot replies with
+     * the video's cover image as a photo message carrying the download
+     * menu (fallback: plain text message if there's no thumbnail):
+     * inline buttons are short download links on this server
+     * (index.php re-resolves the real CDN URL when tapped, so the
+     * user's browser does the actual download): video buttons for each
+     * rung of Tool77Service::MENU_HEIGHTS the video actually offers
+     * (1080p → 360p), plus one audio button per format tool77 returned
+     * (typically m4a + opus).
      */
     public function handleYouTubeUrl(int $chatId, int $userId, string $url): void
     {
@@ -440,9 +442,31 @@ class BotController
         }
 
         $title = trim((string) ($data['title'] ?? ''));
-        $text = ($title !== '' ? "🎬 *" . Validator::markdownEscape($title) . "*\n" : '')
+        $caption = ($title !== '' ? "🎬 *" . Validator::markdownEscape(mb_substr($title, 0, 256)) . "*\n" : '')
             . "Pick a quality to download:";
-        $this->telegram->sendMessage($chatId, $text, $keyboard);
+
+        // Cover + buttons in one photo message; falls back to a plain
+        // text menu when the video has no usable thumbnail or Telegram
+        // rejects the URL (sendPhoto retries parse errors internally,
+        // anything else lands here).
+        $sent = false;
+        $thumbnail = (string) ($data['thumbnail'] ?? '');
+        if (preg_match('#^https?://#i', $thumbnail)) {
+            $this->telegram->sendChatAction($chatId, 'upload_photo');
+            $result = $this->telegram->sendPhoto($chatId, $thumbnail, $caption, $keyboard);
+            $sent = ($result['ok'] ?? false) === true;
+            if (!$sent) {
+                Logger::write('warning', 'YouTube cover send failed — falling back to text menu', [
+                    'chat_id' => $chatId,
+                    'thumbnail' => $thumbnail,
+                    'description' => $result['description'] ?? null,
+                ]);
+            }
+        }
+
+        if (!$sent) {
+            $this->telegram->sendMessage($chatId, $caption, $keyboard);
+        }
 
         $this->saveDownload($userId, $cleanUrl, 'youtube_link');
         $this->stats->recordDownload();
