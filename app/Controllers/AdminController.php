@@ -2,6 +2,7 @@
 
 namespace App\Controllers;
 
+use App\Core\Config;
 use App\Core\Database;
 use App\Helpers\Validator;
 use App\Models\Ad;
@@ -57,6 +58,7 @@ class AdminController
             case '/adsremove':    $this->removeAd($chatId, $parts); break;
             case '/top':          $this->topUsers($chatId); break;
             case '/errors':       $this->errorsCommand($chatId); break;
+            case '/setup':        $this->setupDatabase($chatId); break;
             default:
                 $this->telegram->sendMessage($chatId, "Unknown admin command. Try /admin for the dashboard.");
         }
@@ -77,7 +79,7 @@ class AdminController
             "/broadcast /forward /stats /logs /errors\n" .
             "/addadmin /removeadmin /admins\n" .
             "/ads /adslist /adsremove — forward any message to add one\n" .
-            "/maintenance";
+            "/maintenance /setup";
         $this->telegram->sendMessage($chatId, $text);
     }
 
@@ -242,13 +244,35 @@ class AdminController
         $this->telegram->sendMessage($chatId, "*Last 7 days:*\n" . implode("\n", $lines ?: ['No data yet.']));
     }
 
+    /**
+     * Reads the tail of the flat file log (config 'log_file' —
+     * storage/logs/app.log) instead of the `logs` table: the file gets
+     * every entry unconditionally, while the table write silently
+     * no-ops whenever the DB is down or mid-setup, so file-backed
+     * /logs stays useful exactly when things are going wrong.
+     */
     private function logsCommand(int $chatId): void
     {
-        $lines = array_map(
-            fn($r) => "[{$r['level']}] {$r['created_at']}: " . Validator::markdownEscape(mb_substr((string) $r['message'], 0, 80)),
-            Log::recent(15)
+        $logFile = (string) Config::get('log_file', '');
+        $content = $logFile !== '' ? @file_get_contents($logFile) : false;
+
+        if ($content === false) {
+            $this->telegram->sendMessage($chatId, "📄 No log file found at `" . $logFile . "` yet — nothing has been logged.");
+            return;
+        }
+
+        $allLines = array_values(array_filter(array_map('trim', explode("\n", $content))));
+        $tail = array_slice($allLines, -15);
+
+        // Raw lines mix timestamps, levels, messages and JSON context,
+        // all full of _ * [ characters Telegram's Markdown would eat —
+        // escape each line whole rather than trying to reformat them.
+        $lines = array_map(fn($l) => Validator::markdownEscape(mb_substr($l, 0, 200)), $tail);
+
+        $this->telegram->sendMessage(
+            $chatId,
+            "*Recent logs (max 15 from app.log):*\n" . implode("\n", $lines ?: ['Log file is empty.'])
         );
-        $this->telegram->sendMessage($chatId, "*Recent logs (max 15):*\n" . implode("\n", $lines ?: ['No logs yet.']));
     }
 
     private function errorsCommand(int $chatId): void
@@ -333,6 +357,38 @@ class AdminController
         }
         $removed = Ad::delete((int) $args[0]);
         $this->telegram->sendMessage($chatId, $removed ? "🗑 Removed ad #{$args[0]}." : "No ad with that ID.");
+    }
+
+    /**
+     * Runs database/schema.sql followed by database/migrate_v5.sql —
+     * what CLI create_table.php does. Exists because some hosts only
+     * execute index.php/webhook.php as web entry points, locking the
+     * browser-based setup scripts away; this gives the owner a way to
+     * bootstrap or repair the schema from any Telegram chat instead.
+     * Both files are idempotent (CREATE TABLE IF NOT EXISTS, no-op
+     * ENUM updates). migrate_v4.sql is deliberately NOT run — its one
+     * unique statement is an ALTER that would REGRESS downloads.type
+     * back to an enum list that's missing youtube_link, which
+     * schema.sql already creates in final form.
+     */
+    private function setupDatabase(int $chatId): void
+    {
+        $pdo = Database::getInstance();
+        $lines = [];
+        foreach (['schema.sql', 'migrate_v5.sql'] as $file) {
+            $path = __DIR__ . '/../../database/' . $file;
+            if (!is_file($path)) {
+                $lines[] = "⚠️ {$file}: not found on the server";
+                continue;
+            }
+            try {
+                $pdo->exec(file_get_contents($path));
+                $lines[] = "✅ {$file} applied";
+            } catch (\Throwable $e) {
+                $lines[] = "❌ {$file}: " . Validator::markdownEscape(mb_substr($e->getMessage(), 0, 140));
+            }
+        }
+        $this->telegram->sendMessage($chatId, "🛠 *Database setup*\n" . implode("\n", $lines));
     }
 
     private function topUsers(int $chatId): void

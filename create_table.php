@@ -23,18 +23,20 @@ try {
         ]
     );
 
-    $sqlFile = __DIR__ . '/database/schema.sql';
+    // schema.sql creates everything in final form; migrate_v5.sql is a
+    // no-op afterwards but kept so CLI and the bot's /setup command
+    // always produce identical results.
+    foreach (['schema.sql', 'migrate_v5.sql'] as $file) {
+        $sqlFile = __DIR__ . '/database/' . $file;
 
-    if (!file_exists($sqlFile)) {
-        exit("database.sql not found.\n");
+        if (!file_exists($sqlFile)) {
+            echo "⚠️ {$file} not found — skipped.\n";
+            continue;
+        }
+
+        $pdo->exec(file_get_contents($sqlFile));
+        echo "✅ {$file} applied.\n";
     }
-
-    $sql = file_get_contents($sqlFile);
-
-    // Execute all SQL statements
-    $pdo->exec($sql);
-
-    echo "✅ Database tables created successfully.\n";
 
 } catch (PDOException $e) {
     die("Database Error: " . $e->getMessage());

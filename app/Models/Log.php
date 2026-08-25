@@ -7,15 +7,6 @@ use PDO;
 
 class Log
 {
-    public static function recent(int $limit = 50): array
-    {
-        $pdo = Database::getInstance();
-        $stmt = $pdo->prepare('SELECT * FROM logs ORDER BY id DESC LIMIT :limit');
-        $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
-        $stmt->execute();
-        return $stmt->fetchAll();
-    }
-
     /** Most recent entries of one level ('info' | 'warning' | 'error') — backs /errors. */
     public static function recentByLevel(string $level, int $limit = 50): array
     {

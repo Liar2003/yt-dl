@@ -4,6 +4,7 @@ namespace App\Controllers;
 
 use App\Core\Config;
 use App\Core\Database;
+use App\Helpers\Logger;
 use App\Helpers\Validator;
 use App\Models\Ad;
 use App\Models\Download;
@@ -84,35 +85,50 @@ class BotController
 
         $telegramId = (int) $from['id'];
 
-        if (Setting::isTrue('maintenance_mode', false) && !User::isAdmin($telegramId)) {
-            $this->telegram->sendMessage($chatId, "🛠 The bot is under maintenance. Please try again shortly.");
-            return;
-        }
-
-        $isNewUser = User::findByTelegramId($telegramId) === null;
-        User::registerOrUpdate($from);
-        if ($isNewUser) {
-            $this->stats->recordNewUser();
-        }
-
-        if (User::isBanned($telegramId)) {
-            $this->telegram->sendMessage($chatId, "🚫 You've been banned from using this bot.");
-            return;
-        }
-
-        // Any message an admin forwards to the bot is either the
-        // broadcast they just armed with /forward, or — if they
-        // didn't — gets auto-captured as an ad. Checked before the
-        // empty-text return below since this content (a photo, a
-        // video) often has no `text` field at all, only a caption or
-        // none.
-        if (User::isAdmin($telegramId) && $this->isForwardedMessage($message)) {
-            if (PendingBroadcast::isPending($telegramId)) {
-                $this->handleBroadcastForward((int) $chatId, $telegramId, $message);
-            } else {
-                $this->handleAdForward((int) $chatId, $telegramId, $message);
+        // Everything from here down to the command router touches the
+        // database — on a brand-new deployment those tables don't exist
+        // yet. Instead of dying before a single command gets handled,
+        // note the failure and keep going: slash commands still route
+        // (that's what makes the admin's /setup able to create the
+        // missing tables), while link traffic gets told the bot isn't
+        // ready.
+        $dbReady = true;
+        try {
+            if (Setting::isTrue('maintenance_mode', false) && !User::isAdmin($telegramId)) {
+                $this->telegram->sendMessage($chatId, "🛠 The bot is under maintenance. Please try again shortly.");
+                return;
             }
-            return;
+
+            $isNewUser = User::findByTelegramId($telegramId) === null;
+            User::registerOrUpdate($from);
+            if ($isNewUser) {
+                $this->stats->recordNewUser();
+            }
+
+            if (User::isBanned($telegramId)) {
+                $this->telegram->sendMessage($chatId, "🚫 You've been banned from using this bot.");
+                return;
+            }
+
+            // Any message an admin forwards to the bot is either the
+            // broadcast they just armed with /forward, or — if they
+            // didn't — gets auto-captured as an ad. Checked before the
+            // empty-text return below since this content (a photo, a
+            // video) often has no `text` field at all, only a caption or
+            // none.
+            if (User::isAdmin($telegramId) && $this->isForwardedMessage($message)) {
+                if (PendingBroadcast::isPending($telegramId)) {
+                    $this->handleBroadcastForward((int) $chatId, $telegramId, $message);
+                } else {
+                    $this->handleAdForward((int) $chatId, $telegramId, $message);
+                }
+                return;
+            }
+        } catch (Throwable $e) {
+            $dbReady = false;
+            Logger::write('warning', 'DB preamble failed — routing as unready: ' . $e->getMessage(), [
+                'telegram_id' => $telegramId,
+            ]);
         }
 
         if ($text === '') {
@@ -121,6 +137,11 @@ class BotController
 
         if ($text[0] === '/') {
             $this->handleCommand($text, (int) $chatId, $from);
+            return;
+        }
+
+        if (!$dbReady) {
+            $this->telegram->sendMessage($chatId, "⚠️ The bot isn't set up yet — please check back soon.");
             return;
         }
 
@@ -184,11 +205,26 @@ class BotController
                 return;
 
             default:
-                if (User::isAdmin((int) $from['id'])) {
-                    (new AdminController())->handleCommand($text, $chatId, (int) $from['id']);
-                    return;
+                // User::isAdmin() answers from config alone for the
+                // bootstrap admin, so /setup reaches AdminController
+                // even with no tables yet. Any other admin check hits
+                // the DB and lands in the catch below.
+                try {
+                    if (User::isAdmin((int) $from['id'])) {
+                        (new AdminController())->handleCommand($text, $chatId, (int) $from['id']);
+                        return;
+                    }
+                    $this->telegram->sendMessage($chatId, "Unknown command. Try /help.");
+                } catch (Throwable $e) {
+                    Logger::write('error', 'Admin dispatch failed: ' . $e->getMessage(), [
+                        'command' => $command,
+                        'telegram_id' => (int) $from['id'],
+                    ]);
+                    $this->telegram->sendMessage(
+                        $chatId,
+                        "⚠️ Database not ready. If you're the bot owner, send /setup to create the tables."
+                    );
                 }
-                $this->telegram->sendMessage($chatId, "Unknown command. Try /help.");
         }
     }
 
