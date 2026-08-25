@@ -22,7 +22,7 @@ use Throwable;
  */
 class TikTokUserService
 {
-    private const API_URL = 'https://www.tikwm.com/api/user/posts';
+    private const API_URL = 'https://www.tikwm.com/api/user/story';
 
     /**
      * @return array{videos: array, cursor: int, hasMore: bool}|null

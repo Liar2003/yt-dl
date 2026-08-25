@@ -24,13 +24,19 @@ use Throwable;
  *    garbage.
  *
  * 2. The decoded URLs are short-lived signed CDN links — YouTube's
- *    googlevideo.com ones carry their own `expire=` timestamp. This
- *    service's cache TTL (tool77_cache_ttl, default 900s) is
- *    deliberately shorter than a typical "downloader" cache would be
- *    for that reason — a "Download Video"/"Download Audio" button
- *    tapped long after the original message may hit an expired link
- *    even though it's still "cached" here; that shows up as Telegram
+ *    googlevideo.com ones carry their own `expire=` timestamp
+ *    (typically hours out). This service's cache TTL
+ *    (tool77_cache_ttl, default 900s) is deliberately shorter than a
+ *    typical "downloader" cache would be for that reason. Facebook's
+ *    "Download Audio" button resolves its link only when tapped, so a
+ *    tap long after the original message may hit an expired link even
+ *    though it's still "cached" here; that shows up as Telegram
  *    failing to fetch the file, not as an error from this service.
+ *    YouTube no longer routes through buttons at all — see
+ *    getVideoQualities()/getAudioFormats(): BotController embeds the
+ *    resolved links straight into inline URL buttons the moment the
+ *    menu message is sent, so the link the user taps is as fresh as
+ *    the fetch itself.
  *
  * 3. tool77.com's own web UI gates downloads behind a bot-check
  *    ("wait a few seconds" / browser extension) — but that lives in
@@ -45,6 +51,9 @@ use Throwable;
 class Tool77Service
 {
     private const API_URL = 'https://www.tool77.com/en/v/download/all/request';
+
+    /** The only video heights YouTube menus offer — anything else (2160p, 144p, …) is dropped. */
+    public const MENU_HEIGHTS = [1080, 720, 480, 360];
 
     public function fetch(string $url): ?array
     {
@@ -103,6 +112,115 @@ class Tool77Service
     public function getBestAudio(array $data): ?array
     {
         return $this->pickBest($data['audios'] ?? [], false);
+    }
+
+    /**
+     * YouTube menu: download candidates for the fixed height ladder
+     * (MENU_HEIGHTS, highest first). data['normals'] entries carry
+     * their own audio track; data['videos'] ones are video-only —
+     * YouTube only serves combined streams at 360p and below, so
+     * higher rungs always come out of `videos` and play back silent.
+     * At each height a combined format beats a video-only one, and
+     * among video-only duplicates the most broadly playable codec
+     * wins (avc1 mp4 over vp9/av01 webm). Entries whose url token
+     * fails to resolve are skipped. Returns [] when nothing usable.
+     *
+     * @return array<int, array{url: string, hasAudio: bool}> keyed by height, MENU_HEIGHTS order
+     */
+    public function getVideoQualities(array $data, ?array $heights = null): array
+    {
+        $heights = $heights ?? self::MENU_HEIGHTS;
+
+        $combined = [];
+        foreach ($this->withHeight($data['normals'] ?? []) as $entry) {
+            $combined[$entry['height']] ??= $entry;
+        }
+
+        $videoOnly = [];
+        foreach ($this->withHeight($data['videos'] ?? []) as $entry) {
+            $h = (int) $entry['height'];
+            if (!isset($videoOnly[$h]) || $this->codecRank($entry) < $this->codecRank($videoOnly[$h])) {
+                $videoOnly[$h] = $entry;
+            }
+        }
+
+        $menu = [];
+        foreach ($heights as $h) {
+            if (isset($combined[$h]) && ($url = $this->resolveUrl($combined[$h]))) {
+                $menu[$h] = ['url' => $url, 'hasAudio' => true];
+            } elseif (isset($videoOnly[$h]) && ($url = $this->resolveUrl($videoOnly[$h]))) {
+                $menu[$h] = ['url' => $url, 'hasAudio' => false];
+            }
+        }
+        return $menu;
+    }
+
+    /**
+     * YouTube menu: best track (highest kb/s in its label) per audio
+     * format — m4a and opus for typical videos. Ordered by how
+     * universally playable each format is (m4a first).
+     *
+     * @return array<string, array{url: string, kbps: int}> keyed by extension
+     */
+    public function getAudioFormats(array $data): array
+    {
+        $best = [];
+        foreach ($data['audios'] ?? [] as $entry) {
+            if (empty($entry['url'])) {
+                continue;
+            }
+            $ext = strtolower((string) ($entry['extension'] ?? ''));
+            if ($ext === '') {
+                continue;
+            }
+            preg_match('/(\d+)\s*kb\/s/i', (string) ($entry['label'] ?? ''), $m);
+            $kbps = (int) ($m[1] ?? 0);
+            if (!isset($best[$ext]) || $kbps > $best[$ext]['kbps']) {
+                $best[$ext] = ['kbps' => $kbps, 'entry' => $entry];
+            }
+        }
+
+        $out = [];
+        foreach ($best as $ext => $info) {
+            if ($url = $this->resolveUrl($info['entry'])) {
+                $out[$ext] = ['url' => $url, 'kbps' => $info['kbps']];
+            }
+        }
+        uksort($out, fn($a, $b) => $this->audioFormatRank($a) <=> $this->audioFormatRank($b));
+        return $out;
+    }
+
+    /** Drops entries without a positive height so callers can index on it safely. */
+    private function withHeight(array $entries): \Generator
+    {
+        foreach ($entries as $entry) {
+            if (!empty($entry['url']) && (int) ($entry['height'] ?? 0) > 0) {
+                $entry['height'] = (int) $entry['height'];
+                yield $entry;
+            }
+        }
+    }
+
+    /** Lower rank = more compatible player support. avc1-in-mp4 plays nearly everywhere. */
+    private function codecRank(array $entry): int
+    {
+        $mime = strtolower((string) ($entry['mimeType'] ?? ''));
+        if (str_contains($mime, 'avc1')) {
+            return 0;
+        }
+        if (str_contains($mime, 'mp4')) {
+            return 1;
+        }
+        return 2;
+    }
+
+    private function audioFormatRank(string $ext): int
+    {
+        return match ($ext) {
+            'm4a', 'mp3' => 0,
+            'aac'        => 1,
+            default      => 2, // opus & friends: great quality, spotty native support
+        };
     }
 
     /**

@@ -151,7 +151,8 @@ class BotController
                 $this->telegram->sendMessage(
                     $chatId,
                     "👋 *Welcome!*\n\nSend me a TikTok or Facebook link to download the video, " .
-                    "a YouTube link / search term to get the audio, or a TikTok @username to browse their videos.\n\n" .
+                    "a YouTube link or search term to pick from its video/audio download links, " .
+                    "or a TikTok @username to browse their videos.\n\n" .
                     "Use /help to see everything I can do."
                 );
                 return;
@@ -162,7 +163,7 @@ class BotController
                     "*How to use this bot*\n\n" .
                     "• Send a TikTok link → get the video/photos plus a 🎵 audio option\n" .
                     "• Send a Facebook link → get the video plus a 🎵 audio option\n" .
-                    "• Send a YouTube link → get the audio (MP3), plus a 🎬 video option\n" .
+                    "• Send a YouTube link → get download buttons: 1080p/720p/480p/360p video + audio\n" .
                     "• Send a search term → pick a YouTube result to download\n" .
                     "• /username @handle → browse a TikTok user's recent videos\n\n" .
                     "Commands: /start /help /about /username"
@@ -173,7 +174,7 @@ class BotController
                 $this->telegram->sendMessage($chatId, "🤖 *TikTok, Facebook & YouTube Downloader Bot*\nBuilt in pure PHP, no framework.");
                 return;
 
-            case '/username':
+            case '/story':
                 $arg = trim(substr($text, strlen(explode(' ', $text, 2)[0])));
                 if ($arg === '') {
                     $this->telegram->sendMessage($chatId, "Usage: /username @tiktokhandle");
@@ -365,47 +366,14 @@ class BotController
     }
 
     /**
-     * Always downloads then uploads — never sends by raw URL. Used for
-     * every googlevideo.com link (YouTube audio and, via the "Download
-     * Video" button, YouTube video). Google's CDN commonly rejects a
-     * fetch from any IP other than whichever server resolved the
-     * signed URL from tool77 — passing the raw URL to
-     * sendAudio()/sendVideo() means TELEGRAM'S servers do that fetch,
-     * a third IP unrelated to both tool77's and this bot's, which is
-     * what produces a 403. Downloading here immediately (minimizing
-     * time against the URL's own expire= window) and uploading the
-     * bytes directly removes that hop. TikTok/Facebook's CDNs haven't
-     * shown this problem, so deliverVideo() above still sends those by
-     * URL when small enough.
-     */
-    private function deliverGoogleAudio(int $chatId, string $url, string $caption, ?array $keyboard): bool
-    {
-        $localPath = $this->media->downloadToTemp($url, 'm4a', 'https://www.youtube.com/');
-        if (!$localPath) {
-            return false;
-        }
-        $this->telegram->sendChatAction($chatId, 'upload_audio');
-        $this->telegram->sendAudioLocal($chatId, $localPath, $caption, $keyboard);
-        $this->media->cleanup($localPath);
-        return true;
-    }
-
-    private function deliverGoogleVideo(int $chatId, string $url, string $caption, ?array $keyboard = null): bool
-    {
-        $localPath = $this->media->downloadToTemp($url, 'mp4', 'https://www.youtube.com/');
-        if (!$localPath) {
-            return false;
-        }
-        $this->telegram->sendChatAction($chatId, 'upload_video');
-        $this->telegram->sendVideoLocal($chatId, $localPath, $caption, $keyboard);
-        $this->media->cleanup($localPath);
-        return true;
-    }
-
-    /**
-     * YouTube: audio primary (matches the rest of the bot's messaging),
-     * with a 🎬 Download Video button since tool77 hands back a
-     * playable video format too, in the same response, for free.
+     * YouTube: no media is sent to the chat. The bot replies with a
+     * menu message whose inline URL buttons point straight at the
+     * resolved CDN links, so the user's browser does the download:
+     * video buttons for each rung of Tool77Service::MENU_HEIGHTS the
+     * video actually offers (1080p → 360p), plus one audio button per
+     * format tool77 returned (typically m4a + opus). Embedding the
+     * signed googlevideo URLs at menu time also sidesteps two upload
+     * ceilings that made direct delivery unreliable above 20–50MB.
      */
     public function handleYouTubeUrl(int $chatId, int $userId, string $url): void
     {
@@ -430,28 +398,58 @@ class BotController
             return;
         }
 
-        $audio = $this->tool77->getBestAudio($data);
-        $audioUrl = $audio ? $this->tool77->resolveUrl($audio) : null;
-        if (!$audioUrl) {
-            $this->telegram->sendMessage($chatId, "❌ No downloadable audio found for that video.");
+        $keyboard = $this->buildYoutubeKeyboard($data);
+        if (!$keyboard) {
+            $this->telegram->sendMessage($chatId, "❌ No downloadable formats found for that video.");
             return;
         }
 
-        $title = Validator::markdownEscape((string) ($data['title'] ?? ''));
-        $id = $this->tool77->cacheId($cleanUrl);
+        $title = trim((string) ($data['title'] ?? ''));
+        $text = ($title !== '' ? "🎬 *" . Validator::markdownEscape($title) . "*\n" : '')
+            . "Pick a quality to download:";
+        $this->telegram->sendMessage($chatId, $text, $keyboard);
 
-        $video = $this->tool77->getBestNormal($data);
-        $keyboard = ($video && $video['url'])
-            ? ['inline_keyboard' => [[['text' => '🎬 Download Video', 'callback_data' => 'dlvid_' . $id]]]]
-            : null;
-
-        if (!$this->deliverGoogleAudio($chatId, $audioUrl, $title, $keyboard)) {
-            $this->telegram->sendMessage($chatId, "❌ Failed to process that audio. Please try again.");
-            return;
-        }
-        $this->saveDownload($userId, $cleanUrl, 'youtube_audio');
+        $this->saveDownload($userId, $cleanUrl, 'youtube_link');
         $this->stats->recordDownload();
         $this->ads->maybeShow($chatId);
+    }
+
+    /**
+     * Inline URL-button keyboard over getVideoQualities() +
+     * getAudioFormats(): two buttons per row (Telegram renders these
+     * nicely at that width), videos first then audios. Null when
+     * neither produced a single resolvable link. Everything above
+     * 360p is a video-only stream, so those buttons get a 🔇 marker.
+     */
+    private function buildYoutubeKeyboard(array $data): ?array
+    {
+        $videos = $this->tool77->getVideoQualities($data);
+        $audios = $this->tool77->getAudioFormats($data);
+        if (!$videos && !$audios) {
+            return null;
+        }
+
+        $rows = [];
+        $row = [];
+        foreach ($videos as $height => $v) {
+            $row[] = ['text' => "🎬 {$height}p" . ($v['hasAudio'] ? '' : ' 🔇'), 'url' => $v['url']];
+            if (count($row) === 2) {
+                $rows[] = $row;
+                $row = [];
+            }
+        }
+        foreach ($audios as $ext => $a) {
+            $label = strtoupper($ext) . ($a['kbps'] > 0 ? " · {$a['kbps']}kbps" : '');
+            $row[] = ['text' => "🎵 {$label}", 'url' => $a['url']];
+            if (count($row) === 2) {
+                $rows[] = $row;
+                $row = [];
+            }
+        }
+        if ($row) {
+            $rows[] = $row;
+        }
+        return ['inline_keyboard' => $rows];
     }
 
     private function handleTextSearch(int $chatId, int $userId, string $query): void
@@ -646,10 +644,6 @@ class BotController
             $this->onTikTokAudioButton($callbackId, (int) $chatId, $userId, substr($data, 6));
             return;
         }
-        if (str_starts_with($data, 'dlvid_')) {
-            $this->onDownloadVideoButton($callbackId, (int) $chatId, $userId, substr($data, 6));
-            return;
-        }
         if (str_starts_with($data, 'tkusernext_')) {
             $this->onTikTokUserNextPage($callbackId, (int) $chatId, (int) $messageId, substr($data, 11));
             return;
@@ -765,33 +759,6 @@ class BotController
         $this->telegram->sendAudio($chatId, $cached['url'], '🎵 Extracted audio');
 
         $this->saveDownload($userId, (string) ($cached['origin'] ?? ('tkaud_' . $tiktokId)), 'tiktok_audio');
-        $this->stats->recordDownload();
-        $this->ads->maybeShow($chatId);
-    }
-
-    /** "Download Video" button — currently only YouTube offers this (its primary delivery is audio). */
-    private function onDownloadVideoButton(string $callbackId, int $chatId, int $userId, string $id): void
-    {
-        $data = $this->tool77->getCachedById($id);
-        if (!$data) {
-            $this->telegram->answerCallbackQuery($callbackId, "That link expired — please resend it.", true);
-            return;
-        }
-
-        $video = $this->tool77->getBestNormal($data);
-        $videoUrl = $video ? $this->tool77->resolveUrl($video) : null;
-        if (!$videoUrl) {
-            $this->telegram->answerCallbackQuery($callbackId, "No video format available.", true);
-            return;
-        }
-
-        $this->telegram->answerCallbackQuery($callbackId);
-        $title = Validator::markdownEscape((string) ($data['title'] ?? ''));
-        if (!$this->deliverGoogleVideo($chatId, $videoUrl, $title)) {
-            $this->telegram->sendMessage($chatId, "❌ Failed to process that video. Please try again.");
-            return;
-        }
-        $this->saveDownload($userId, (string) ($data['originUrl'] ?? $id), 'youtube_video');
         $this->stats->recordDownload();
         $this->ads->maybeShow($chatId);
     }

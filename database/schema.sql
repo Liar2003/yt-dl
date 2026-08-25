@@ -35,7 +35,7 @@ CREATE TABLE IF NOT EXISTS `downloads` (
     `id` BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     `user_id` BIGINT NOT NULL,
     `url` TEXT NOT NULL,
-    `type` ENUM('video','image','youtube_audio') NOT NULL,
+    `type` ENUM('video','image','youtube_audio','youtube_video','facebook_video','facebook_audio','tiktok_audio','youtube_link') NOT NULL,
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     INDEX (`user_id`),
     INDEX (`created_at`)
