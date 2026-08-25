@@ -1,0 +1,62 @@
+{
+  "code": 0,
+  "msg": "success",
+  "processed_time": 0.9007,
+  "data": {
+    "id": "7661459537194437909",
+    "region": "MM",
+    "title": "🫩",
+    "content_desc": [],
+    "cover": "https://p16-common-sign.tiktokcdn-us.com/tos-alisg-i-photomode-sg/77288243ee3b4631b6bea12e80f39992~tplv-photomode-image-cover:640:0:q70.webp?dr=12229&refresh_token=6e0c7876&x-expires=1788937200&x-signature=cIsnFXKuxl1hhCjZQpBimDEZPow%3D&t=5897f7ec&ps=d5b8ac02&shp=d05b14bd&shcp=1d1a97fc&idc=useast5&s=AWEME_DETAIL&sc=cover&biz_tag=tt_photomode",
+    "ai_dynamic_cover": "https://p16-common-sign.tiktokcdn-us.com/tos-alisg-i-photomode-sg/77288243ee3b4631b6bea12e80f39992~tplv-photomode-image-cover:640:0:q70.webp?dr=12229&refresh_token=6e0c7876&x-expires=1788937200&x-signature=cIsnFXKuxl1hhCjZQpBimDEZPow%3D&t=5897f7ec&ps=d5b8ac02&shp=d05b14bd&shcp=1d1a97fc&idc=useast5&s=AWEME_DETAIL&sc=cover&biz_tag=tt_photomode",
+    "origin_cover": "https://p16-common-sign.tiktokcdn-us.com/tos-alisg-i-photomode-sg/77288243ee3b4631b6bea12e80f39992~tplv-photomode-image-cover:640:0:q70.webp?dr=12229&refresh_token=6e0c7876&x-expires=1788937200&x-signature=cIsnFXKuxl1hhCjZQpBimDEZPow%3D&t=5897f7ec&ps=d5b8ac02&shp=d05b14bd&shcp=1d1a97fc&idc=useast5&s=AWEME_DETAIL&sc=cover&biz_tag=tt_photomode",
+    "duration": 0,
+    "play": "https://v16-ies-music.tiktokcdn-us.com/07fe1725297063dcaf72ab602134218b/6a967b94/video/tos/useast5/tos-useast5-ve-27dcd7c799-tx/o4L2YIQJsUfON0D4BigF5C4GQfkXo5EBMEw0VC/?a=583965&bti=OTg7QGo5QHM6OjZALTAzYCMvcCMxNDNg&&bt=125&ft=4KUr5MX_8Zmo00CyHa4jVTuJYdWrKsd.&mime_type=audio_mpeg&rc=aWRkOzU5NzNmOmdkN2U3NUBpM3ZpPHQ5cmhoMzMzODU8NEA2YjNgYDJfXzMxNC0tLWA1YSNmbGUwMmRjbDFhLS1kMS1zcw%3D%3D&vvpl=1&l=20260825071514F2846A7E0253CB00EE58&btag=e000b0000&shp=d05b14bd&shcp=-",
+    "wmplay": "https://v16-ies-music.tiktokcdn-us.com/07fe1725297063dcaf72ab602134218b/6a967b94/video/tos/useast5/tos-useast5-ve-27dcd7c799-tx/o4L2YIQJsUfON0D4BigF5C4GQfkXo5EBMEw0VC/?a=583965&bti=OTg7QGo5QHM6OjZALTAzYCMvcCMxNDNg&&bt=125&ft=4KUr5MX_8Zmo00CyHa4jVTuJYdWrKsd.&mime_type=audio_mpeg&rc=aWRkOzU5NzNmOmdkN2U3NUBpM3ZpPHQ5cmhoMzMzODU8NEA2YjNgYDJfXzMxNC0tLWA1YSNmbGUwMmRjbDFhLS1kMS1zcw%3D%3D&vvpl=1&l=20260825071514F2846A7E0253CB00EE58&btag=e000b0000&shp=d05b14bd&shcp=-",
+    "size": 0,
+    "wm_size": 0,
+    "music": "https://v16-ies-music.tiktokcdn-us.com/07fe1725297063dcaf72ab602134218b/6a967b94/video/tos/useast5/tos-useast5-ve-27dcd7c799-tx/o4L2YIQJsUfON0D4BigF5C4GQfkXo5EBMEw0VC/?a=583965&bti=OTg7QGo5QHM6OjZALTAzYCMvcCMxNDNg&&bt=125&ft=4KUr5MX_8Zmo00CyHa4jVTuJYdWrKsd.&mime_type=audio_mpeg&rc=aWRkOzU5NzNmOmdkN2U3NUBpM3ZpPHQ5cmhoMzMzODU8NEA2YjNgYDJfXzMxNC0tLWA1YSNmbGUwMmRjbDFhLS1kMS1zcw%3D%3D&vvpl=1&l=20260825071514F2846A7E0253CB00EE58&btag=e000b0000&shp=d05b14bd&shcp=-",
+    "music_info": {
+      "id": "7496501324784175873",
+      "title": "original sound - nainghtetoo.soloboy1",
+      "play": "https://v16-ies-music.tiktokcdn-us.com/07fe1725297063dcaf72ab602134218b/6a967b94/video/tos/useast5/tos-useast5-ve-27dcd7c799-tx/o4L2YIQJsUfON0D4BigF5C4GQfkXo5EBMEw0VC/?a=583965&bti=OTg7QGo5QHM6OjZALTAzYCMvcCMxNDNg&&bt=125&ft=4KUr5MX_8Zmo00CyHa4jVTuJYdWrKsd.&mime_type=audio_mpeg&rc=aWRkOzU5NzNmOmdkN2U3NUBpM3ZpPHQ5cmhoMzMzODU8NEA2YjNgYDJfXzMxNC0tLWA1YSNmbGUwMmRjbDFhLS1kMS1zcw%3D%3D&vvpl=1&l=20260825071514F2846A7E0253CB00EE58&btag=e000b0000&shp=d05b14bd&shcp=-",
+      "cover": "https://p19-common-sign.tiktokcdn-us.com/tos-alisg-avt-0068/dc205ddfc837536952e2a37527b597e7~tplv-tiktokx-cropcenter-q:1080:1080:q70.jpeg?dr=8837&refresh_token=57ccff9a&x-expires=1787727600&x-signature=DyF8oHXBAhfeNuF0njgAAZrQue0%3D&t=223449c4&ps=87d6e48a&shp=d05b14bd&shcp=1d1a97fc&idc=useast5&sc=avatar&s=AWEME_DETAIL",
+      "author": "✫ℕ𝕒𝕚𝕟𝕘✫{စာတို}",
+      "original": true,
+      "duration": 9,
+      "album": ""
+    },
+    "play_count": 215,
+    "digg_count": 25,
+    "comment_count": 2,
+    "share_count": 0,
+    "download_count": 0,
+    "collect_count": 0,
+    "create_time": 1783822564,
+    "anchors": null,
+    "anchors_extras": "",
+    "is_ad": false,
+    "commerce_info": {
+      "adv_promotable": false,
+      "auction_ad_invited": false,
+      "branded_content_type": 0,
+      "is_diversion_ad": 0,
+      "organic_log_extra": "{\"req_id\":\"20260825071514F2846A7E0253CB00EE58\"}",
+      "with_comment_filter_words": false
+    },
+    "commercial_video_info": "",
+    "item_comment_settings": 0,
+    "mentioned_users": "",
+    "author": {
+      "id": "7055920929561494530",
+      "unique_id": "toewaioo.dev",
+      "nickname": "Toewaioo.dev",
+      "avatar": "https://p16-common-sign.tiktokcdn-us.com/tos-alisg-avt-0068/81d101a250db682ce1e04afbfc365761~tplv-tiktokx-cropcenter-q:300:300:q70.jpeg?dr=8834&refresh_token=a9e87c5b&x-expires=1787727600&x-signature=%2F%2Fro9wOD5d4q1UiRtIv7saOD4AU%3D&t=223449c4&ps=87d6e48a&shp=d05b14bd&shcp=1d1a97fc&idc=useast5&sc=avatar&s=AWEME_DETAIL"
+    },
+    "is_nff_or_nr": false,
+    "images": [
+      "https://p16-common-sign.tiktokcdn-us.com/tos-alisg-i-photomode-sg/77288243ee3b4631b6bea12e80f39992~tplv-photomode-image.jpeg?dr=9616&x-expires=1787814000&x-signature=ovsp16jMzmLmrvnP2Ispsx7UoV0%3D&t=4d5b0474&ps=13740610&shp=81f88b70&shcp=9b759fb9&idc=useast8&ftpl=1",
+      "https://p16-common-sign.tiktokcdn-us.com/tos-alisg-i-photomode-sg/f6a42f3b1e7f4cdcb1105bc8022cfc1d~tplv-photomode-image.jpeg?dr=9616&x-expires=1787814000&x-signature=Tu0JYJiH0ojT87BPRZmUJi0PPw0%3D&t=4d5b0474&ps=13740610&shp=81f88b70&shcp=9b759fb9&idc=useast8&ftpl=1"
+    ]
+  }
+}

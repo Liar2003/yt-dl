@@ -149,13 +149,14 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && isset($_GET['ajax'])) {
 
         $type = $tikwm->detectType($data);
         Response::json([
-            'success'   => true,
-            'type'      => $type,
-            'title'     => $data['title'] ?? '',
-            'cover'     => $data['cover'] ?? ($data['origin_cover'] ?? null),
-            'video_url' => $type === 'video' ? $tikwm->getVideoUrl($data) : null,
-            'images'    => $type === 'image' ? $tikwm->getImages($data) : [],
-            'audio_url' => $tikwm->getAudioUrl($data),
+            'success'     => true,
+            'type'        => $type,
+            'title'       => $data['title'] ?? '',
+            'cover'       => $data['cover'] ?? ($data['origin_cover'] ?? null),
+            'video_url'   => $type === 'video' ? $tikwm->getVideoUrl($data) : null,
+            'images'      => $type === 'image' ? $tikwm->getImages($data) : [],
+            'live_images' => $type === 'image' ? $tikwm->getLiveImages($data) : [],
+            'audio_url'   => $tikwm->getAudioUrl($data),
         ]);
         exit;
     }
@@ -497,13 +498,21 @@ $botUsername = 'YourBotUsername';
       }
 
       if (data.type === 'image') {
-        const thumbs = (data.images || []).map((src, i) => `
-          <a href="${src}" download target="_blank" rel="noopener" class="group relative block aspect-[3/4] rounded-lg overflow-hidden bg-panel2">
-            <img src="${src}" alt="Slide ${i + 1}" class="w-full h-full object-cover">
+        // Slides with a live_images entry are TikTok live photos —
+        // render and download the MP4 instead of the still frame.
+        const liveImages = data.live_images || [];
+        const thumbs = (data.images || []).map((src, i) => {
+          const live = liveImages[i] || null;
+          return `
+          <a href="${live ?? src}" download target="_blank" rel="noopener" class="group relative block aspect-[3/4] rounded-lg overflow-hidden bg-panel2">
+            ${live
+              ? `<video src="${live}" muted loop autoplay playsinline class="w-full h-full object-cover">`
+              : `<img src="${src}" alt="Slide ${i + 1}" class="w-full h-full object-cover">`}
             <span class="absolute inset-0 bg-ink/0 group-hover:bg-ink/40 transition-colors flex items-center justify-center">
-              <span class="opacity-0 group-hover:opacity-100 font-mono text-[10px] uppercase text-paper transition-opacity">Save</span>
+              <span class="opacity-0 group-hover:opacity-100 font-mono text-[10px] uppercase text-paper transition-opacity">${live ? 'Save video' : 'Save'}</span>
             </span>
-          </a>`).join('');
+          </a>`;
+        }).join('');
 
         resultArea.innerHTML = `
           <div class="bg-panel border border-hairline rounded-2xl p-5">

@@ -315,8 +315,12 @@ class BotController
 
         $images = $this->tikwm->getImages($data);
         if ($images) {
-            $this->telegram->sendChatAction($chatId, 'upload_photo');
-            $this->telegram->sendMediaGroup($chatId, $images);
+            // Slides backed by a TikTok live photo carry an MP4 in
+            // live_images (index-paired with images) — send those as
+            // videos so users get the animated version, not a still.
+            $liveImages = $this->tikwm->getLiveImages($data);
+            $this->telegram->sendChatAction($chatId, $liveImages ? 'upload_video' : 'upload_photo');
+            $this->telegram->sendMediaGroup($chatId, $this->buildCarouselMedia($images, $liveImages));
             $this->telegram->sendMessage($chatId, $title !== '' ? $title : 'Here you go 👆', $keyboard);
             $this->saveDownload($userId, $url, 'image');
             $this->stats->recordDownload();
@@ -334,6 +338,28 @@ class BotController
         $this->saveDownload($userId, $url, 'video');
         $this->stats->recordDownload();
         $this->ads->maybeShow($chatId);
+    }
+
+    /**
+     * Pairs carousel slides with their live-photo videos: slide i with
+     * a live_images entry goes out as a video media item, the rest as
+     * plain photo URLs (sendMediaGroup's default).
+     *
+     * @param string[] $images
+     * @param string[] $liveImages
+     * @return array<array{type:string,media:string}>|string[]
+     */
+    private function buildCarouselMedia(array $images, array $liveImages): array
+    {
+        $items = [];
+        foreach ($images as $i => $url) {
+            if (!empty($liveImages[$i])) {
+                $items[] = ['type' => 'video', 'media' => $liveImages[$i]];
+            } else {
+                $items[] = $url;
+            }
+        }
+        return $items;
     }
 
     /**

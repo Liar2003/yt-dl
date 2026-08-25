@@ -80,6 +80,18 @@ class TikwmService
         return $data['images'] ?? [];
     }
 
+    /**
+     * TikTok "live photo" slides: MP4 renditions that pair by index
+     * with getImages() — live_images[i] is the animated version of
+     * images[i]. Empty for plain image posts.
+     *
+     * @return string[]
+     */
+    public function getLiveImages(array $data): array
+    {
+        return $data['live_images'] ?? [];
+    }
+
     private function getCache(string $key): ?array
     {
         try {

@@ -135,7 +135,9 @@ class TelegramService
     }
 
     /**
-     * @param string[] $imageUrls
+     * @param string[]|array<string,string> $imageUrls Plain URLs go
+     * out as photos; entries shaped ['type' => ..., 'media' => ...]
+     * (live-photo slides as videos) pass through untouched.
      * Telegram allows at most 10 items per media group, so larger
      * TikTok photo carousels are split and sent as consecutive groups.
      */
@@ -143,7 +145,10 @@ class TelegramService
     {
         $result = null;
         foreach (array_chunk($imageUrls, 10) as $chunk) {
-            $media = array_map(fn($url) => ['type' => 'photo', 'media' => $url], $chunk);
+            $media = array_map(
+                fn($item) => is_array($item) ? $item : ['type' => 'photo', 'media' => $item],
+                $chunk
+            );
             $result = $this->request('sendMediaGroup', [
                 'chat_id' => $chatId,
                 'media'   => json_encode($media),
