@@ -89,6 +89,10 @@ class TikTokUserService
             $stmt->execute(['k' => 'tkuser_video_' . $id, 'v' => json_encode($video), 'ttl' => $ttl]);
         } catch (Throwable $e) {
             // Cache is best-effort — a failure here shouldn't break the listing.
+            Logger::write('warning', 'TikTok user video cache write failed', [
+                'video_id' => $id,
+                'db_error' => $e->getMessage(),
+            ]);
         }
     }
 
@@ -101,6 +105,10 @@ class TikTokUserService
             $row = $stmt->fetch();
             return $row ? json_decode($row['cache_value'], true) : null;
         } catch (Throwable $e) {
+            Logger::write('warning', 'TikTok user video cache read failed', [
+                'video_id' => $videoId,
+                'db_error' => $e->getMessage(),
+            ]);
             return null;
         }
     }

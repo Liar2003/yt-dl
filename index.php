@@ -12,6 +12,7 @@
 
 require_once __DIR__ . '/app/autoload.php';
 
+use App\Helpers\Logger;
 use App\Helpers\Response;
 use App\Helpers\Validator;
 use App\Services\TikwmService;
@@ -64,6 +65,16 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'GET' && isset($_GET['proxy'])) {
         },
     ]);
     curl_exec($ch);
+    // The browser just sees a truncated/empty file on failure — leave
+    // the real cause in app.log.
+    if (curl_errno($ch) !== 0 || curl_getinfo($ch, CURLINFO_RESPONSE_CODE) >= 400) {
+        Logger::write('error', 'YouTube proxy stream failed', [
+            'id'         => $id,
+            'kind'       => $kind,
+            'curl_error' => curl_error($ch) ?: null,
+            'http_code'  => curl_getinfo($ch, CURLINFO_RESPONSE_CODE),
+        ]);
+    }
     curl_close($ch);
     exit;
 }

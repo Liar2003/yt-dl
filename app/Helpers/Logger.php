@@ -24,7 +24,13 @@ class Logger
 
         $logFile = Config::get('log_file');
         if ($logFile) {
-            @file_put_contents($logFile, $line . PHP_EOL, FILE_APPEND);
+            self::ensureLogDirectory((string) $logFile);
+            if (@file_put_contents($logFile, $line . PHP_EOL, FILE_APPEND) === false) {
+                // Last resort so even an unwritable log path leaves a
+                // trace somewhere (PHP's own error log / the hosting
+                // panel's error view).
+                error_log('[app] ' . $line);
+            }
         }
 
         try {
@@ -39,6 +45,20 @@ class Logger
             ]);
         } catch (Throwable $e) {
             // Best effort — the file log above already has it.
+        }
+    }
+
+    /**
+     * The storage/logs/ folder doesn't exist in a fresh upload unless
+     * someone remembers to create it (and git won't carry empty
+     * directories) — create it on first write instead of letting the
+     * entry vanish into the @-suppressed file_put_contents.
+     */
+    private static function ensureLogDirectory(string $logFile): void
+    {
+        $dir = dirname($logFile);
+        if ($dir !== '' && $dir !== '.' && !is_dir($dir)) {
+            @mkdir($dir, 0775, true);
         }
     }
 }

@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Core\Database;
+use App\Helpers\Logger;
 use App\Models\Setting;
 
 /**
@@ -44,6 +45,16 @@ class ForceJoinService
 
         foreach ($channels as $channel) {
             $response = $this->telegram->getChatMember($channel['channel_username'], $userId);
+            if ($response === null || ($response['ok'] ?? false) !== true) {
+                // A failed API call here would otherwise strand the user
+                // at the join prompt forever with no trace of why — log
+                // it, then treat like "not joined" as before.
+                Logger::write('warning', 'Force-join membership check failed — treating user as not joined', [
+                    'channel'     => $channel['channel_username'],
+                    'user_id'     => $userId,
+                    'description' => $response['description'] ?? null,
+                ]);
+            }
             $status = $response['result']['status'] ?? null;
             if (!in_array($status, ['member', 'administrator', 'creator'], true)) {
                 return false;

@@ -61,7 +61,16 @@ class Validator
         ]);
         curl_exec($ch);
         $effective = curl_getinfo($ch, CURLINFO_EFFECTIVE_URL);
+        $error = curl_error($ch);
         curl_close($ch);
+
+        if ($error !== '' || !is_string($effective) || !preg_match('#^https?://#i', $effective)) {
+            Logger::write('warning', 'Short-link redirect unresolved — using the input URL as-is', [
+                'url'        => $url,
+                'curl_error' => $error !== '' ? $error : null,
+                'effective'  => is_string($effective) ? $effective : null,
+            ]);
+        }
 
         return is_string($effective) && preg_match('#^https?://#i', $effective) ? $effective : $url;
     }
@@ -112,12 +121,23 @@ class Validator
         ]);
         $result = curl_exec($ch);
         if ($result === false) {
+            $error = curl_error($ch);
             curl_close($ch);
+            Logger::write('warning', 'Remote file size check failed — falling back to direct URL delivery', [
+                'url'        => $url,
+                'curl_error' => $error,
+            ]);
             return null;
         }
         $size = curl_getinfo($ch, CURLINFO_CONTENT_LENGTH_DOWNLOAD);
         curl_close($ch);
-        return $size > 0 ? (int) $size : null;
+        if ($size <= 0) {
+            Logger::write('info', 'Remote file size unavailable (no Content-Length) — sending by URL directly', [
+                'url' => $url,
+            ]);
+            return null;
+        }
+        return (int) $size;
     }
 
     /**

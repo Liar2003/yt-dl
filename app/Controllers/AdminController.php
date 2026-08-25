@@ -4,6 +4,7 @@ namespace App\Controllers;
 
 use App\Core\Config;
 use App\Core\Database;
+use App\Helpers\Logger;
 use App\Helpers\Validator;
 use App\Models\Ad;
 use App\Models\Log;
@@ -385,6 +386,7 @@ class AdminController
                 $pdo->exec(file_get_contents($path));
                 $lines[] = "✅ {$file} applied";
             } catch (\Throwable $e) {
+                Logger::write('error', "/setup failed while applying {$file}: " . $e->getMessage());
                 $lines[] = "❌ {$file}: " . Validator::markdownEscape(mb_substr($e->getMessage(), 0, 140));
             }
         }

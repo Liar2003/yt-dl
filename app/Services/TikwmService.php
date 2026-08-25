@@ -89,6 +89,10 @@ class TikwmService
             $row = $stmt->fetch();
             return $row ? json_decode($row['cache_value'], true) : null;
         } catch (Throwable $e) {
+            Logger::write('warning', 'Tikwm cache read failed — refetching from API', [
+                'key' => $key,
+                'db_error' => $e->getMessage(),
+            ]);
             return null;
         }
     }
@@ -106,6 +110,10 @@ class TikwmService
             $stmt->execute(['k' => $key, 'v' => json_encode($value), 'ttl' => $ttl]);
         } catch (Throwable $e) {
             // Cache is best-effort; a failure here shouldn't break a download.
+            Logger::write('warning', 'Tikwm cache write failed — audio buttons may expire early', [
+                'key' => $key,
+                'db_error' => $e->getMessage(),
+            ]);
         }
     }
 

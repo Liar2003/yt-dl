@@ -282,6 +282,10 @@ class Tool77Service
             $row = $stmt->fetch();
             return $row ? json_decode($row['cache_value'], true) : null;
         } catch (Throwable $e) {
+            Logger::write('warning', 'Tool77 cache read failed — refetching from API', [
+                'key' => 'tool77_' . $key,
+                'db_error' => $e->getMessage(),
+            ]);
             return null;
         }
     }
@@ -299,6 +303,10 @@ class Tool77Service
             $stmt->execute(['k' => 'tool77_' . $key, 'v' => json_encode($value), 'ttl' => $ttl]);
         } catch (Throwable $e) {
             // Cache is best-effort; a failure here shouldn't break a download.
+            Logger::write('warning', 'Tool77 cache write failed — links will expire sooner', [
+                'key' => 'tool77_' . $key,
+                'db_error' => $e->getMessage(),
+            ]);
         }
     }
 }

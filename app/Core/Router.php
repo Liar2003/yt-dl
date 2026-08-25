@@ -17,6 +17,12 @@ class Router
         $update = json_decode($input, true);
 
         if (!is_array($update)) {
+            // Usually scanners hitting the webhook URL — logged at info
+            // so real misconfigurations (wrong secret, wrong endpoint)
+            // are still visible in app.log without drowning in errors.
+            Logger::write('info', 'Webhook received a non-JSON POST body — rejected with 400', [
+                'body' => mb_substr((string) $input, 0, 200),
+            ]);
             http_response_code(400);
             return;
         }
