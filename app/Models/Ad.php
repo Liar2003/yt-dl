@@ -29,7 +29,7 @@ class Ad
     public static function random(): ?array
     {
         $pdo = Database::getInstance();
-        $row = $pdo->query('SELECT * FROM ads ORDER BY RAND() LIMIT 1')->fetch();
+        $row = $pdo->query('SELECT * FROM ads ORDER BY RANDOM() LIMIT 1')->fetch();
         return $row ?: null;
     }
 

@@ -18,7 +18,8 @@ class PendingBroadcast
     {
         $pdo = Database::getInstance();
         $stmt = $pdo->prepare(
-            'INSERT INTO pending_broadcasts (admin_id) VALUES (:id) ON DUPLICATE KEY UPDATE created_at = NOW()'
+            'INSERT INTO pending_broadcasts (admin_id) VALUES (:id)
+             ON CONFLICT(admin_id) DO UPDATE SET created_at = CURRENT_TIMESTAMP'
         );
         $stmt->execute(['id' => $adminId]);
     }
@@ -27,11 +28,17 @@ class PendingBroadcast
     public static function isPending(int $adminId, int $maxAgeSeconds = 600): bool
     {
         $pdo = Database::getInstance();
+        // SQLite stores CURRENT_TIMESTAMP as 'YYYY-MM-DD HH:MM:SS' UTC,
+        // same format MySQL returns, so a string compare after
+        // datetime() on both sides is the portable equivalent of
+        // DATE_SUB(NOW(), INTERVAL :age SECOND).
         $stmt = $pdo->prepare(
-            'SELECT 1 FROM pending_broadcasts WHERE admin_id = :id AND created_at > DATE_SUB(NOW(), INTERVAL :age SECOND)'
+            "SELECT 1 FROM pending_broadcasts
+             WHERE admin_id = :id
+               AND datetime(created_at) > datetime('now', :age)"
         );
         $stmt->bindValue(':id', $adminId, PDO::PARAM_INT);
-        $stmt->bindValue(':age', $maxAgeSeconds, PDO::PARAM_INT);
+        $stmt->bindValue(':age', '-' . $maxAgeSeconds . ' seconds', PDO::PARAM_STR);
         $stmt->execute();
         return (bool) $stmt->fetchColumn();
     }

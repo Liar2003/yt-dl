@@ -23,7 +23,7 @@ class Setting
         $pdo = Database::getInstance();
         $stmt = $pdo->prepare(
             'INSERT INTO settings (setting_key, setting_value) VALUES (:k, :v)
-             ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)'
+             ON CONFLICT(setting_key) DO UPDATE SET setting_value = excluded.setting_value'
         );
         $stmt->execute(['k' => $key, 'v' => $value]);
     }

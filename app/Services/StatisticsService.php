@@ -8,6 +8,9 @@ use PDO;
 /**
  * Daily rollup counters backing /admin and /stats. recordDownload()
  * and recordNewUser() are called from BotController as events happen.
+ * Queries use SQLite-compatible syntax: CURDATE() -> DATE('now'),
+ * DATE_SUB -> datetime('now', ...), ON DUPLICATE KEY UPDATE -> ON
+ * CONFLICT DO UPDATE.
  */
 class StatisticsService
 {
@@ -26,10 +29,10 @@ class StatisticsService
     {
         $pdo = Database::getInstance();
         $stmt = $pdo->prepare(
-            'SELECT stat_date, downloads_count, new_users_count FROM statistics
-             WHERE stat_date >= DATE_SUB(CURDATE(), INTERVAL :days DAY) ORDER BY stat_date ASC'
+            "SELECT stat_date, downloads_count, new_users_count FROM statistics
+             WHERE stat_date >= DATE('now', :days) ORDER BY stat_date ASC"
         );
-        $stmt->bindValue(':days', $days, PDO::PARAM_INT);
+        $stmt->bindValue(':days', '-' . $days . ' days', PDO::PARAM_STR);
         $stmt->execute();
         return $stmt->fetchAll();
     }
@@ -38,8 +41,8 @@ class StatisticsService
     {
         $pdo = Database::getInstance();
         $stmt = $pdo->prepare(
-            'INSERT INTO statistics (stat_date, downloads_count, new_users_count) VALUES (CURDATE(), 1, 0)
-             ON DUPLICATE KEY UPDATE downloads_count = downloads_count + 1'
+            "INSERT INTO statistics (stat_date, downloads_count, new_users_count) VALUES (DATE('now'), 1, 0)
+             ON CONFLICT(stat_date) DO UPDATE SET downloads_count = downloads_count + 1"
         );
         $stmt->execute();
     }
@@ -48,8 +51,8 @@ class StatisticsService
     {
         $pdo = Database::getInstance();
         $stmt = $pdo->prepare(
-            'INSERT INTO statistics (stat_date, downloads_count, new_users_count) VALUES (CURDATE(), 0, 1)
-             ON DUPLICATE KEY UPDATE new_users_count = new_users_count + 1'
+            "INSERT INTO statistics (stat_date, downloads_count, new_users_count) VALUES (DATE('now'), 0, 1)
+             ON CONFLICT(stat_date) DO UPDATE SET new_users_count = new_users_count + 1"
         );
         $stmt->execute();
     }

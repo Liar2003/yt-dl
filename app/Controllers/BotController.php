@@ -759,10 +759,10 @@ class BotController
             $pdo = Database::getInstance();
             $ttl = (int) Config::get('cache_ttl', 3600);
             $stmt = $pdo->prepare(
-                'INSERT INTO cache (cache_key, cache_value, expires_at)
-                 VALUES (:k, :v, DATE_ADD(NOW(), INTERVAL :ttl SECOND))'
+                "INSERT INTO cache (cache_key, cache_value, expires_at)
+                 VALUES (:k, :v, datetime('now', :ttl))"
             );
-            $stmt->execute(['k' => 'cbpayload_' . $key, 'v' => json_encode($payload), 'ttl' => $ttl]);
+            $stmt->execute(['k' => 'cbpayload_' . $key, 'v' => json_encode($payload), 'ttl' => '+' . $ttl . ' seconds']);
             return $key;
         } catch (Throwable $e) {
             return base64_encode(json_encode($payload));
@@ -775,7 +775,7 @@ class BotController
         if (preg_match('/^[0-9a-f]{16}$/', $data)) {
             try {
                 $pdo = Database::getInstance();
-                $stmt = $pdo->prepare('SELECT cache_value FROM cache WHERE cache_key = :k AND expires_at > NOW()');
+                $stmt = $pdo->prepare("SELECT cache_value FROM cache WHERE cache_key = :k AND datetime(expires_at) > datetime('now')");
                 $stmt->execute(['k' => 'cbpayload_' . $data]);
                 $row = $stmt->fetch();
                 if ($row) {
@@ -1017,7 +1017,7 @@ class BotController
         $pdo = Database::getInstance();
         $stmt = $pdo->prepare(
             'INSERT INTO pending_requests (user_id, chat_id, url) VALUES (:u, :c, :url)
-             ON DUPLICATE KEY UPDATE url = VALUES(url), chat_id = VALUES(chat_id)'
+             ON CONFLICT(user_id) DO UPDATE SET url = excluded.url, chat_id = excluded.chat_id'
         );
         $stmt->execute(['u' => $userId, 'c' => $chatId, 'url' => $url]);
     }

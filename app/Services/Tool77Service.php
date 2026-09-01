@@ -277,7 +277,7 @@ class Tool77Service
     {
         try {
             $pdo = Database::getInstance();
-            $stmt = $pdo->prepare('SELECT cache_value FROM cache WHERE cache_key = :k AND expires_at > NOW()');
+            $stmt = $pdo->prepare("SELECT cache_value FROM cache WHERE cache_key = :k AND datetime(expires_at) > datetime('now')");
             $stmt->execute(['k' => 'tool77_' . $key]);
             $row = $stmt->fetch();
             return $row ? json_decode($row['cache_value'], true) : null;
@@ -296,11 +296,13 @@ class Tool77Service
             $pdo = Database::getInstance();
             $ttl = (int) Config::get('tool77_cache_ttl', 900);
             $stmt = $pdo->prepare(
-                'INSERT INTO cache (cache_key, cache_value, expires_at)
-                 VALUES (:k, :v, DATE_ADD(NOW(), INTERVAL :ttl SECOND))
-                 ON DUPLICATE KEY UPDATE cache_value = VALUES(cache_value), expires_at = VALUES(expires_at)'
+                "INSERT INTO cache (cache_key, cache_value, expires_at)
+                 VALUES (:k, :v, datetime('now', :ttl))
+                 ON CONFLICT(cache_key) DO UPDATE SET
+                    cache_value = excluded.cache_value,
+                    expires_at  = excluded.expires_at"
             );
-            $stmt->execute(['k' => 'tool77_' . $key, 'v' => json_encode($value), 'ttl' => $ttl]);
+            $stmt->execute(['k' => 'tool77_' . $key, 'v' => json_encode($value), 'ttl' => '+' . $ttl . ' seconds']);
         } catch (Throwable $e) {
             // Cache is best-effort; a failure here shouldn't break a download.
             Logger::write('warning', 'Tool77 cache write failed — links will expire sooner', [

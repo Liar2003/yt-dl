@@ -361,22 +361,24 @@ class AdminController
     }
 
     /**
-     * Runs database/schema.sql followed by database/migrate_v5.sql —
-     * what CLI create_table.php does. Exists because some hosts only
-     * execute index.php/webhook.php as web entry points, locking the
-     * browser-based setup scripts away; this gives the owner a way to
-     * bootstrap or repair the schema from any Telegram chat instead.
-     * Both files are idempotent (CREATE TABLE IF NOT EXISTS, no-op
-     * ENUM updates). migrate_v4.sql is deliberately NOT run — its one
-     * unique statement is an ALTER that would REGRESS downloads.type
-     * back to an enum list that's missing youtube_link, which
-     * schema.sql already creates in final form.
+     * Runs the active schema file — what CLI create_table.php does.
+     * Exists because some hosts only execute index.php/webhook.php as
+     * web entry points, locking browser-based setup scripts away; this
+     * gives the owner a way to bootstrap or repair the schema from any
+     * Telegram chat instead. The MySQL path keeps migrate_v5.sql as a
+     * no-op for parity with the CLI; the SQLite path only needs the
+     * single combined schema.sqlite.sql file.
      */
     private function setupDatabase(int $chatId): void
     {
         $pdo = Database::getInstance();
+        $driver = strtolower((string) Config::get('db.driver', 'sqlite'));
+        $files = $driver === 'mysql'
+            ? ['schema.sql', 'migrate_v5.sql']
+            : ['schema.sqlite.sql'];
+
         $lines = [];
-        foreach (['schema.sql', 'migrate_v5.sql'] as $file) {
+        foreach ($files as $file) {
             $path = __DIR__ . '/../../database/' . $file;
             if (!is_file($path)) {
                 $lines[] = "⚠️ {$file}: not found on the server";

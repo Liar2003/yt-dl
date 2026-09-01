@@ -5,6 +5,15 @@
  */
 return [
     'db' => [
+        // 'mysql' (original) or 'sqlite' (new default for local/single-host
+        // setups). The Database class builds the right DSN from this.
+        'driver'   => 'sqlite',
+
+        // SQLite-only: path to the .db file. Created on first connect.
+        // Relative paths are resolved against the project root.
+        'sqlite_path' => __DIR__ . '/../database/app.db',
+
+        // MySQL-only fields (ignored when driver is 'sqlite').
         'host'     => 'zj3s02purc.pxxldb.pxxl.pro',
 	'port'     => 37313,
 	'username' => 'pxxluser_19fc8319217de37',

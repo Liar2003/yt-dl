@@ -23,7 +23,7 @@ class User
         if ($existing) {
             $update = $pdo->prepare(
                 'UPDATE users SET username = :username, first_name = :first_name,
-                 last_name = :last_name, last_active_at = NOW() WHERE telegram_id = :id'
+                 last_name = :last_name, last_active_at = CURRENT_TIMESTAMP WHERE telegram_id = :id'
             );
             $update->execute([
                 'username'   => $tgUser['username'] ?? null,
@@ -96,7 +96,7 @@ class User
         $pdo = Database::getInstance();
         $stmt = $pdo->prepare(
             'INSERT INTO admins (telegram_id) VALUES (:id)
-             ON DUPLICATE KEY UPDATE telegram_id = telegram_id'
+             ON CONFLICT(telegram_id) DO NOTHING'
         );
         $stmt->execute(['id' => $telegramId]);
     }
