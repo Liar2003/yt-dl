@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+Disallow: /dl?
+Disallow: /proxy?
+Disallow: /ajax
+Disallow: /webhook

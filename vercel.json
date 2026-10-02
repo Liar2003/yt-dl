@@ -3,6 +3,7 @@
   "framework": null,
   "installCommand": "bun install",
   "buildCommand": "bun run build",
+  "outputDirectory": "public",
   "functions": {
     "api/index.ts": {
       "maxDuration": 60,
@@ -10,6 +11,9 @@
     }
   },
   "rewrites": [
-    { "source": "/(.*)", "destination": "/api" }
+    {
+      "source": "/(.*)",
+      "destination": "/api"
+    }
   ]
 }
