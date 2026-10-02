@@ -142,3 +142,38 @@ Set `BOT_USERNAME` in `.env` to link the page to your bot.
 - **Temp files** for large uploads go to `storage/temp` and are cleaned after send.
 - **Legacy**: `bin/poll-single.ts` and the `youtube_downloads` table belong to an older YouTube flow; current YouTube handling is entirely tool77-based.
 - **Never commit** filled-in credentials — `.env` is gitignored and holds every secret. The service-role key grants full database access: keep it server-side.
+
+## 7. Deploying to Vercel
+
+The repo ships `api/index.ts` (a `(req, res)` adapter over the same Hono app
+`src/server.ts` runs) and `vercel.json`, which rewrites all traffic to it.
+No code changes are needed for the move; it's a configuration one.
+
+**Setup**
+
+1. Import the repo at vercel.com/new — Bun install and `bun run build` are
+   detected automatically from `bun.lock` / `package.json`.
+2. Set the env vars from `.env.example` in the dashboard, plus:
+   - `TEMP_DIR=/tmp` — the project directory is read-only; `/tmp` is the
+     only writable path (mediaService also falls back to `os.tmpdir()`
+     on its own if this can't be created).
+   - `LOG_FILE=/tmp/app.log` — or leave it empty to write to the `logs`
+     table and console only, which is usually what you want serverless.
+   - `WEBHOOK_URL=https://<app>.vercel.app/webhook`
+3. Run `bun run set-webhook` from your machine after the first deploy.
+
+**Operational differences from a VPS**
+
+- **Execution time** — `vercel.json` sets `maxDuration: 60`, the Hobby cap.
+  The large-media path (download + Telegram upload) is allowed 120s, so big
+  files will fail on Hobby. On Pro, raise it to `300`.
+- **Filesystem** — `/logs` reads `LOG_FILE`, which may not exist on Vercel;
+  `/errors` reads the `logs` table and works everywhere. Temp files live in
+  `/tmp`, are gone when the container recycles, and need no sweeping.
+- **Cold starts** — each idle window costs a second or so on the first
+  webhook; Telegram tolerates it, but don't set an aggressive retry expectation.
+- **No background jobs** — the legacy `bin/poll-single.ts` is never spawned,
+  so nothing needs a cron. Current YouTube handling finishes inside the
+  webhook request.
+- **Webhook secret** — if you set `WEBHOOK_SECRET`, it only takes effect
+  after `set-webhook` re-registers it with Telegram (see §2).

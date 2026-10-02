@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -7,26 +8,53 @@ import { Config } from '../config.js';
 import { logger } from '../helpers/logger.js';
 
 /**
- * Downloads remote media into storage/temp/ for the large-video
- * (>20MB) upload path, and cleans up afterwards.
+ * Downloads remote media into the temp dir (TEMP_DIR, defaulting to
+ * storage/temp/) for the large-video (>20MB) upload path, and cleans up
+ * afterwards.
  */
 export class MediaService {
-  private readonly tempDir: string;
+  private resolvedTempDir: string | null = null;
 
-  constructor() {
-    this.tempDir = path.join(Config.get<string>('root_dir'), 'storage', 'temp');
+  /**
+   * Creates the configured temp dir, falling back to os.tmpdir() when it
+   * can't be created — serverless platforms mount the app directory
+   * read-only, and on those only /tmp is writable. The result is cached
+   * so the probe happens once per container.
+   */
+  private async ensureTempDir(): Promise<string | null> {
+    if (this.resolvedTempDir) return this.resolvedTempDir;
+
+    for (const dir of [Config.get<string>('temp_dir'), os.tmpdir()]) {
+      try {
+        await fsp.mkdir(dir, { recursive: true, mode: 0o775 });
+        this.resolvedTempDir = dir;
+        return dir;
+      } catch (error) {
+        logger.write('warning', 'Temp dir unavailable, trying the next candidate', {
+          dir,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    return null;
   }
 
   /**
-   * Downloads a remote file into storage/temp/ and returns its path.
+   * Downloads a remote file into the temp dir and returns its path.
    * referer is needed for googlevideo.com links — Google's CDN rejects
    * fetches that don't carry a youtube.com Referer.
    */
   async downloadToTemp(url: string, extension = 'mp4', referer: string | null = null): Promise<string | null> {
-    await fsp.mkdir(this.tempDir, { recursive: true, mode: 0o775 });
-    const filePath = path.join(this.tempDir, `media_${Date.now()}_${Math.random().toString(36).slice(2)}.${extension}`);
-
     try {
+      const tempDir = await this.ensureTempDir();
+      if (!tempDir) {
+        throw new Error('no writable temp directory');
+      }
+      const filePath = path.join(
+        tempDir,
+        `media_${Date.now()}_${Math.random().toString(36).slice(2)}.${extension}`,
+      );
+
       const headers: Record<string, string> = { 'User-Agent': 'Mozilla/5.0' };
       if (referer) headers.Referer = referer;
 
@@ -45,7 +73,6 @@ export class MediaService {
       logger.write('error', `MediaService download failed: ${error instanceof Error ? error.message : error}`, {
         url,
       });
-      await fsp.rm(filePath, { force: true }).catch(() => undefined);
       return null;
     }
   }
@@ -54,18 +81,19 @@ export class MediaService {
     await fsp.rm(filePath, { force: true }).catch(() => undefined);
   }
 
-  /** Sweeps storage/temp/ of anything older than maxAgeSeconds — wire this into a cron job. */
+  /** Sweeps the configured temp dir of anything older than maxAgeSeconds — wire this into a cron job. */
   async cleanupOldTempFiles(maxAgeSeconds = 3600): Promise<void> {
+    const dir = Config.get<string>('temp_dir');
     let entries: string[] = [];
     try {
-      entries = await fsp.readdir(this.tempDir);
+      entries = await fsp.readdir(dir);
     } catch {
       return;
     }
 
     const cutoff = Date.now() - maxAgeSeconds * 1000;
     for (const entry of entries) {
-      const filePath = path.join(this.tempDir, entry);
+      const filePath = path.join(dir, entry);
       try {
         const stat = await fsp.stat(filePath);
         if (stat.isFile() && stat.mtimeMs < cutoff) {

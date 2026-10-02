@@ -70,6 +70,10 @@ const data: Record<string, unknown> = {
   // googlevideo URLs themselves stay signed for ~6h.
   tool77_cache_ttl: envInt('TOOL77_CACHE_TTL', 3600),
 
+  // Scratch space for downloaded media (see MediaService). Serverless
+  // platforms only allow writes under /tmp — set TEMP_DIR=/tmp there.
+  temp_dir: resolvePath(env('TEMP_DIR', path.join('storage', 'temp'))),
+
   port: envInt('PORT', 3000),
   host: env('HOST', '0.0.0.0'),
   root_dir: rootDir,

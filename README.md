@@ -26,8 +26,12 @@ A Node.js + TypeScript Telegram bot (no framework) plus a matching web downloade
 ## Layout
 
 ```
-src/server.ts        Routes: /webhook, /, /ajax, /dl, /proxy
+src/app.ts           Routes: /webhook, /, /ajax, /dl, /proxy
                      (+ legacy /index.php?dl=1|proxy=1|ajax=1, /webhook.php)
+src/server.ts        Standalone entry — binds the port (dev / `bun start`)
+api/index.ts         Vercel entry — adapts the same app to (req, res)
+scripts/             embed-view.ts — inlines src/views/index.html
+src/views/           index.html (source of truth) + generated indexHtml.ts
 src/controllers/     BotController (user flow), AdminController
 src/services/        Telegram API, extractors (Tikwm, Tool77), ads, broadcast,
                      force-join, statistics, media handling
@@ -49,3 +53,30 @@ cp .env.example .env             # fill in Supabase + Telegram credentials
 bun run set-webhook              # register webhook_url with Telegram
 bun run dev                      # or: bun run build && bun start
 ```
+
+## Deploy to Vercel
+
+`api/index.ts` adapts the same Hono app to a serverless function and
+`vercel.json` rewrites every path to it, so `/webhook`, `/`, `/ajax`, `/dl`,
+`/proxy` and the legacy `index.php` / `webhook.php` URLs all keep working
+unchanged.
+
+1. Push the repo and import it at vercel.com/new (Bun is detected from
+   `bun.lock`; `bun run build` runs automatically and embeds the page).
+2. In **Project → Settings → Environment Variables** add everything from
+   `.env.example`, plus two serverless-specific ones — the project directory
+   is read-only, only `/tmp` is writable:
+   `TEMP_DIR=/tmp` and `LOG_FILE=/tmp/app.log` (leave `LOG_FILE` empty to
+   log to the `logs` table and console only).
+3. Deploy, then register the webhook against the new URL:
+   `WEBHOOK_URL=https://<app>.vercel.app/webhook bun run set-webhook`.
+
+Two things to know before you ship:
+
+- `vercel.json` caps the function at **60s** (the Hobby plan limit). The
+  large-media path allows up to 120s, so on a Pro plan raise
+  `functions["api/index.ts"].maxDuration` to `300`, or lower
+  `MAX_URL_UPLOAD_BYTES` to keep files under the limit.
+- `/proxy` streams YouTube files through Vercel, so that counts against your
+  bandwidth quota (and your Supabase/Telegram egress, where the real media
+  transfer happens).

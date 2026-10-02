@@ -3,12 +3,13 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "TikTok / Facebook / YouTube downloader — Telegram bot + web UI",
+  "description": "TikTok / Facebook / YouTube downloader \u2014 Telegram bot + web UI",
   "scripts": {
-    "dev": "bunx tsx src/server.ts",
-    "build": "tsc -p tsconfig.json",
+    "dev": "bunx tsx scripts/embed-view.ts && bunx tsx src/server.ts",
+    "build": "bunx tsx scripts/embed-view.ts && tsc -p tsconfig.json",
     "start": "node dist/src/server.js",
     "typecheck": "tsc --noEmit",
+    "embed": "bunx tsx scripts/embed-view.ts",
     "set-webhook": "bunx tsx bin/set-webhook.ts",
     "poll-single": "bunx tsx bin/poll-single.ts"
   },
