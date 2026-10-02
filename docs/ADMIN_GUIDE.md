@@ -8,7 +8,7 @@ Complete reference for running the bot: setup, every admin command, and the feat
 
 Two kinds, both always active:
 
-1. **Bootstrap admin** — the `admin_telegram_id` in `config/config.php`. Works even with no database. Cannot be removed via commands.
+1. **Bootstrap admin** — the `ADMIN_TELEGRAM_ID` in `.env`. Works even with no database. Cannot be removed via commands.
 2. **Table admins** — added with `/addadmin <telegram_id>`, stored in the `admins` table, removable with `/removeadmin`.
 
 Admins keep full user access *plus* the command set below. Anything an admin **forwards** to the bot is intercepted (see §6 Ads and §7 Broadcasting).
@@ -17,19 +17,20 @@ Admins keep full user access *plus* the command set below. Anything an admin **f
 
 ## 2. First-time deployment
 
-Requirements: PHP 8+ (curl, pdo_mysql), MySQL/MariaDB, HTTPS hosting.
+Requirements: Node.js 18+ (20+ recommended), [Bun](https://bun.sh) as the package manager, a Supabase project, HTTPS hosting.
 
-1. Fill in `config/config.php`:
-   - `db` — database credentials
-   - `bot_token` — from @BotFather
-   - `webhook_url` — public HTTPS URL of `webhook.php`
-   - `webhook_secret` — random string Telegram echoes back in a header
-   - `admin_telegram_id` — your numeric Telegram ID
-   - `google_api_key` — YouTube Data API v3 key (powers search)
-2. Create the tables — either:
-   - CLI: `php create_table.php`, or
-   - From any Telegram chat: send `/setup` (applies `database/schema.sql` + `database/migrate_v5.sql`; both idempotent). This works even when the DB was broken, because slash commands route before the DB is touched.
-3. Register the webhook: `php bin/set-webhook.php` (or point BotFather at `webhook.php` manually).
+1. Install dependencies and fill in `.env` (copy `.env.example`):
+   - `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` — Supabase → Settings → API. The service-role key stays on the server only.
+   - `BOT_TOKEN` — from @BotFather
+   - `WEBHOOK_URL` — public HTTPS URL of this app's `/webhook` route
+   - `WEBHOOK_SECRET` — optional shared secret; when set it is sent to Telegram as `secret_token` and checked on every incoming webhook
+   - `ADMIN_TELEGRAM_ID` — your numeric Telegram ID
+   - `GOOGLE_API_KEY` — YouTube Data API v3 key (powers search)
+   - `BOT_USERNAME` — @username the web page links to
+2. Create the tables: run `database/schema.postgres.sql` once in the Supabase SQL editor (idempotent — safe to re-run). It also installs the two RPC functions the app uses.
+   - From any Telegram chat you can send `/setup` to *verify* which tables exist; slash commands route before the DB is touched, so it works even when the schema is missing.
+3. Register the webhook: `bun run set-webhook` (or point BotFather at `/webhook` manually).
+4. Start the app: `bun run build && bun start`, or `bun run dev` for a quick start. The same process serves the webhook, the web UI, and the download endpoints.
 
 ---
 
@@ -107,7 +108,7 @@ Watch `app.log` for `Tool77 API returned an error` — that's the extraction API
 | Command | Action |
 |---|---|
 | `/maintenance on` \| `off` | When ON, non-admins get a maintenance notice; admins unaffected |
-| `/setup` | (Re)create all tables from SQL files — safe to rerun |
+| `/setup` | Check which tables exist and report anything missing — apply `database/schema.postgres.sql` to fix |
 
 ---
 
@@ -116,21 +117,28 @@ Watch `app.log` for `Tool77 API returned an error` — that's the extraction API
 - **New-user alerts** — every first-time user triggers a full report to all admins (name, @username, ID, profile link, language, premium status, where they found the bot, total user count).
 - **Facebook URL cleanup** — tracking parameters and trailing slashes are stripped; `m.`/`web.` hosts folded onto `www.`; `fb.watch` short links resolved — tool77 only accepts clean `facebook.com/<type>/<id>` shapes.
 - **Big-file handling** — videos over 20 MB are downloaded to temp storage and uploaded as a file automatically.
-- **Caching** — extraction results are cached in the `cache` table (`tool77_cache_ttl`). For YouTube this is also the lifetime of menu buttons; buttons redirect through your own `index.php?dl=1…`.
+- **Caching** — extraction results are cached in the `cache` table (`TOOL77_CACHE_TTL`). For YouTube this is also the lifetime of menu buttons; buttons redirect through your own `/dl?id=…`.
 
-## 5. Web downloader (`index.php`)
+## 5. Web downloader
 
-The same host serves a paste-a-link web UI ("reel") using the same extractors:
+The same host serves a paste-a-link web UI ("reel") using the same extractors (`src/views/index.html`):
 
-- `POST ?ajax=1` — JSON API behind the page
-- `GET ?dl=1&id=…&kind=video&h=1080` / `kind=audio&fmt=m4a` — redirector the YouTube menu buttons point to
-- `GET ?proxy=1&id=…&kind=video|audio` — streams YouTube files through your server (googlevideo rejects foreign IPs)
+- `GET /` — the page itself (`POST /` is an alias of `/ajax`)
+- `POST /ajax` — JSON API behind the page
+- `POST /webhook` — Telegram updates (POST only; a GET is not a webhook)
+- `GET /dl?id=…&kind=video&h=1080` / `kind=audio&fmt=m4a` — redirector the YouTube menu buttons point to
+- `GET /proxy?id=…&kind=video|audio` — streams YouTube files through your server (googlevideo rejects foreign IPs)
 
-Edit `$botUsername` near the bottom of `index.php` to link the page to your bot.
+Legacy PHP URLs keep working so links already in users' chat history and
+the webhook path Telegram is currently registered against still answer:
+`GET /index.php?dl=1…` and `?proxy=1…`, `POST /index.php?ajax=1`, and
+`POST /webhook.php`. Plain `GET /index.php` redirects to `/`.
+
+Set `BOT_USERNAME` in `.env` to link the page to your bot.
 
 ## 6. Maintenance notes
 
 - **Logs**: `storage/logs/app.log` (flat file) plus the `logs` table. `/logs` reads the file, `/errors` reads the table.
 - **Temp files** for large uploads go to `storage/temp` and are cleaned after send.
-- **Legacy**: `bin/poll-single.php` and the `youtube_downloads` table belong to an older YouTube flow; current YouTube handling is entirely tool77-based.
-- **Never commit** filled-in credentials — `config/config.php` holds secrets.
+- **Legacy**: `bin/poll-single.ts` and the `youtube_downloads` table belong to an older YouTube flow; current YouTube handling is entirely tool77-based.
+- **Never commit** filled-in credentials — `.env` is gitignored and holds every secret. The service-role key grants full database access: keep it server-side.
